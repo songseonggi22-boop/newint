@@ -194,12 +194,12 @@ function applyFilters(isoDate, mentor, out) {
       setTimeout(() => {
         // ③ 검색어에 날짜 (MM.DD 형식)
         const si = q('input[placeholder="검색어를 입력해 주세요"]')[0];
-        if (si) setReactVal(si, isoToMD(isoDate));
+        if (si) typeInto(si, isoToMD(isoDate));
 
         // ④ 멘토선택
         if (mentor) {
           const mi = q('input[placeholder="멘토선택"]')[0];
-          if (mi) setReactVal(mi, mentor);
+          if (mi) typeInto(mi, mentor);
         }
 
         // ⑤ 조회
@@ -417,6 +417,17 @@ function setReactVal(el, v) {
   try { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,v); } catch(_) { el.value=v; }
   el.dispatchEvent(new Event('input',{bubbles:true}));
   el.dispatchEvent(new Event('change',{bubbles:true}));
+}
+
+// 사람처럼 입력: 클릭·포커스 → 값 → 키 입력 → blur (인트라넷이 포커스/blur 때 값을 저장함)
+function typeInto(el, v) {
+  el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  el.click();
+  el.focus();
+  setReactVal(el, v);
+  el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: v.slice(-1) }));
+  el.blur();
+  el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
 }
 
 function setAntDate(input, iso) {
