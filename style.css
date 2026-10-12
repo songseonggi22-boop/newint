@@ -34,9 +34,10 @@ table tbody tr:hover            { background-color: #e8f0fe !important; }
 tr.kih-row-recontact { background-color: #fef9c3 !important; }
 tr.kih-row-recontact:hover { background-color: #fef08a !important; }
 
-/* ── 내 담당자 행 강조 (수강생보기 포함 전체 테이블) ── */
-tr.kih-my-row { background-color: #bbf7d0 !important; font-weight: 700 !important; outline: 2px solid #22c55e; }
-tr.kih-my-row:hover { background-color: #86efac !important; }
+/* ── 내 담당자 행 강조 ── */
+tr.kih-my-row td { background-color: #bbf7d0 !important; font-weight: 700 !important; }
+tr.kih-my-row td:first-child { border-left: 5px solid #16a34a !important; }
+tr.kih-my-row:hover td { background-color: #86efac !important; }
 
 /* ── 컨택 매칭 행 ── */
 tr.kih-contact-match { background-color: #fef3c7 !important; font-weight: 600 !important; }
