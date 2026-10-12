@@ -367,7 +367,8 @@ const ROW  = 'tr, [role="row"]';
 function applyBadges() {
   document.querySelectorAll(CELL).forEach(cell => {
     const raw = (cell.textContent || '').trim();
-    const txt = raw.replace(/\s+/g, ''); // "재컨택 요망"처럼 띄어쓰기 있어도 매칭
+    // 띄어쓰기 무시 + 인트라넷 표기 "컨텍"을 "컨택"으로 통일
+    const txt = raw.replace(/\s+/g, '').replace(/텍/g, '택');
     if (!txt) return;
 
     if (txt === '완납' || txt === 'COD') {
