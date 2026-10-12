@@ -335,11 +335,7 @@ function applyMyRow() {
   if (!window._kihMe) return;
   document.querySelectorAll(ROW).forEach(row => {
     if (row.textContent.includes(window._kihMe)) {
-      row.querySelectorAll(CELL).forEach(td => {
-        td.style.setProperty('background-color', '#bbf7d0', 'important');
-        td.style.setProperty('font-weight', '700', 'important');
-      });
-      if (row.cells?.[0]) row.cells[0].style.setProperty('border-left', '5px solid #16a34a', 'important');
+      row.querySelectorAll(CELL).forEach(td => td.style.setProperty('font-weight', '700', 'important'));
     }
   });
 }
