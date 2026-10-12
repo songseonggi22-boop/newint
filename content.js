@@ -350,7 +350,7 @@ const BADGE = {
   '컨택완료':   ['#fef3c7','#92400e'],
   '전화안받음': ['#f3e8ff','#6b21a8'],
   '상담완료':   ['#dcfce7','#14532d'],
-  '재컨택요망': ['#fef9c3','#854d0e'],
+  '재컨택요망': ['#fde68a','#854d0e'], // 행 배경(#fef9c3)보다 한 톤 진하게 → 뱃지가 묻히지 않음
 };
 
 // <table>과 div 그리드(role=gridcell) 둘 다 대응
@@ -359,7 +359,8 @@ const ROW  = 'tr, [role="row"]';
 
 function applyBadges() {
   document.querySelectorAll(CELL).forEach(cell => {
-    const txt = (cell.textContent || '').trim();
+    const raw = (cell.textContent || '').trim();
+    const txt = raw.replace(/\s+/g, ''); // "재컨택 요망"처럼 띄어쓰기 있어도 매칭
     if (!txt) return;
 
     if (txt === '완납' || txt === 'COD') {
@@ -367,17 +368,18 @@ function applyBadges() {
       return;
     }
 
-    const color = BADGE[txt];
+    const key = txt.startsWith('재컨택') ? '재컨택요망' : txt;
+    const color = BADGE[key];
     if (!color) return;
-    // innerHTML 교체 안 함 — React가 그린 DOM을 깨지 않도록 스타일만 입힘
-    cell.style.setProperty('color', color[1], 'important');
-    cell.style.setProperty('font-weight', '600', 'important');
 
-    if (txt === '재컨택요망') {
+    // 작은 타원형 뱃지
+    if (!cell.querySelector('.__kih')) {
+      cell.innerHTML = `<span class="__kih" style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;line-height:1.6;background:${color[0]};color:${color[1]};">${raw}</span>`;
+    }
+
+    if (key === '재컨택요망') {
       cell.closest(ROW)?.querySelectorAll(CELL).forEach(c =>
         c.style.setProperty('background-color', '#fef9c3', 'important'));
-    } else {
-      cell.style.setProperty('background-color', color[0], 'important');
     }
   });
 }
