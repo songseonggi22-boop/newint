@@ -467,10 +467,14 @@ function navigateByMenu(labels) {
 }
 
 // ─── 시간표관리 페이지 직접 개강일 버튼 주입 ────────────────
+function findGagangSelect() {
+  // DatePicker start input 또는 조회 버튼을 앵커로 사용
+  return document.querySelector('input[date-range="start"]') || findBtn(['조회','검색']);
+}
+
 function injectScheduleQuickBtns() {
   if (document.getElementById('kih-schedule-inline')) return;
 
-  // 드롭다운 select 찾기
   const sel = findGagangSelect();
   if (!sel) return;
 
