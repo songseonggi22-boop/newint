@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { width: 260px; padding: 14px; font-family: 'Noto Sans KR', sans-serif; font-size: 13px; color: #374151; margin: 0; }
+  h2  { font-size: 14px; margin: 0 0 10px; color: #4f46e5; }
+  .section { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f3f4f6; }
+  label { display: block; font-size: 11px; color: #6b7280; margin-bottom: 3px; }
+  input[type="text"] { width: 100%; box-sizing: border-box; padding: 5px 8px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 13px; }
+  button { padding: 5px 10px; background: #4f46e5; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .tip  { font-size: 11px; color: #9ca3af; margin-top: 6px; }
+  #status { margin-top: 8px; font-size: 12px; color: #059669; }
+</style>
+</head>
+<body>
+<h2>🏢 인트라넷 도우미</h2>
+
+<div class="section">
+  <label>이번 달 공휴일·휴강일 날짜 (쉼표 구분)</label>
+  <input id="holiday-input" type="text" placeholder="예: 3,9,10,11" />
+  <div class="tip">토·일 제외 후 입력한 날짜도 제외하여 영업일 계산</div>
+  <button id="save-btn" style="margin-top:8px;">저장</button>
+  <div id="status"></div>
+</div>
+
+<div class="section">
+  <b style="font-size:12px;">단축키</b>
+  <div class="tip" style="margin-top:4px;">
+    Alt+S — 컨택 검색 패널 열기/닫기<br>
+    Alt+B — 영업일 설정 패널 열기/닫기
+  </div>
+</div>
+
+<div>
+  <b style="font-size:12px;">기능 안내</b>
+  <div class="tip" style="margin-top:4px;">
+    ① 영업일 패널: 날짜 셀에 N영업일 뱃지 표시<br>
+    ② 컨택 검색: 날짜+담당자 자동 필터 적용<br>
+    ③ UI 개선: zebra 테이블·상태 뱃지 자동 적용
+  </div>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>

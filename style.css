@@ -1,0 +1,147 @@
+/* ===== Feature 3: UI 가독성 개선 ===== */
+
+/* 전체 폰트·행 여백 */
+body, table, input, select, button {
+  font-size: 14px !important;
+  font-family: 'Pretendard', 'Noto Sans KR', sans-serif !important;
+}
+
+/* 테이블 zebra stripe */
+table tbody tr:nth-child(even) {
+  background-color: #f5f7fa !important;
+}
+table tbody tr:hover {
+  background-color: #e8f0fe !important;
+}
+
+/* 행 패딩 */
+table td, table th {
+  padding: 7px 10px !important;
+  line-height: 1.5 !important;
+}
+
+/* 상태 뱃지 */
+.kih-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.kih-badge-assigned   { background: #d1fae5; color: #065f46; }
+.kih-badge-unassigned { background: #fee2e2; color: #991b1b; }
+.kih-badge-scheduled  { background: #dbeafe; color: #1e40af; }
+.kih-badge-contact    { background: #fef3c7; color: #92400e; }
+
+/* ===== Feature 1: 영업일 오버레이 ===== */
+.kih-bizday-badge {
+  display: inline-block;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.kih-bizday-toggle {
+  margin: 6px 8px;
+  padding: 4px 12px;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.kih-bizday-toggle.active {
+  background: #7c3aed;
+}
+.kih-non-bizday {
+  opacity: 0.35;
+}
+
+/* ===== Feature 2: 컨택 검색 패널 ===== */
+#kih-contact-panel {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 99999;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 12px 0 0 12px;
+  box-shadow: -4px 0 16px rgba(0,0,0,0.12);
+  width: 280px;
+  transition: transform 0.2s, right 0.2s;
+}
+#kih-contact-panel.collapsed {
+  right: -244px;
+}
+#kih-panel-tab {
+  position: absolute;
+  left: -32px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 8px 0 0 8px;
+  padding: 10px 6px;
+  cursor: pointer;
+  font-size: 13px;
+  writing-mode: vertical-lr;
+  letter-spacing: 2px;
+}
+#kih-panel-body {
+  padding: 14px;
+}
+#kih-panel-body h4 {
+  margin: 0 0 10px;
+  font-size: 13px;
+  color: #374151;
+  font-weight: 700;
+}
+#kih-panel-body label {
+  display: block;
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 3px;
+}
+#kih-panel-body input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+#kih-panel-search {
+  width: 100%;
+  padding: 6px;
+  background: #4f46e5;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 4px;
+}
+#kih-panel-result {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #374151;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.kih-result-row {
+  padding: 5px 4px;
+  border-bottom: 1px solid #f3f4f6;
+  cursor: pointer;
+}
+.kih-result-row:hover {
+  background: #f5f3ff;
+}

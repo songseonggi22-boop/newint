@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "인트라넷 도우미",
+  "version": "1.0.0",
+  "description": "뉴인트라넷 영업일 시간표·컨택 검색·UI 개선",
+  "permissions": ["storage"],
+  "host_permissions": ["https://kegone.koreagroupware.com/*"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://kegone.koreagroupware.com/*"],
+      "js": ["content.js"],
+      "css": ["style.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
