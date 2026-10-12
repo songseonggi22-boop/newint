@@ -71,8 +71,8 @@ chrome.storage.local.get(['holidays','myName','pendingContact'], data => {
   window._kihPC = data.pendingContact || null;
 
   buildPanel();
-  applyBadges();
   applyMyRow();
+  applyBadges();
   observe();
   if (window._kihPC) setTimeout(runPending, 1200);
 });
@@ -214,20 +214,22 @@ function selectChange(currentLabel, targetLabel, cb) {
   const span = Array.from(document.querySelectorAll('.ant-select-selection-item'))
     .find(el => (el.innerText || el.textContent).trim() === currentLabel);
 
-  if (!span) { cb?.(); return; }
+  if (!span) { console.warn('[KIH] 셀렉트 못 찾음:', currentLabel); cb?.(); return; }
   const wrap = span.closest('.ant-select');
   if (!wrap) { cb?.(); return; }
 
-  // 클릭해서 드롭다운 열기
-  (wrap.querySelector('.ant-select-selector') || wrap).click();
+  // antd Select는 click이 아니라 mousedown에 열림
+  const sel = wrap.querySelector('.ant-select-selector') || wrap;
+  sel.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
 
-  // 옵션 나타날 때까지 polling
   let n = 0;
   const t = setInterval(() => {
-    const opt = Array.from(document.querySelectorAll('.ant-select-item-option-content'))
-      .find(el => (el.innerText || el.textContent).trim() === targetLabel);
+    // 닫힌 드롭다운(hidden)은 제외하고 열린 것에서만 옵션 탐색
+    const opt = Array.from(document.querySelectorAll(
+      '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
+      .find(el => (el.getAttribute('title') || el.textContent).trim() === targetLabel);
     if (opt) { clearInterval(t); opt.click(); setTimeout(cb, 250); }
-    else if (++n > 20) { clearInterval(t); cb?.(); }
+    else if (++n > 20) { clearInterval(t); console.warn('[KIH] 옵션 못 찾음:', targetLabel); cb?.(); }
   }, 100);
 }
 
@@ -331,13 +333,13 @@ function saveName() {
 
 function applyMyRow() {
   if (!window._kihMe) return;
-  document.querySelectorAll('table tbody tr').forEach(row => {
+  document.querySelectorAll(ROW).forEach(row => {
     if (row.textContent.includes(window._kihMe)) {
-      row.querySelectorAll('td').forEach(td => {
+      row.querySelectorAll(CELL).forEach(td => {
         td.style.setProperty('background-color', '#bbf7d0', 'important');
         td.style.setProperty('font-weight', '700', 'important');
       });
-      if (row.cells[0]) row.cells[0].style.setProperty('border-left', '5px solid #16a34a', 'important');
+      if (row.cells?.[0]) row.cells[0].style.setProperty('border-left', '5px solid #16a34a', 'important');
     }
   });
 }
@@ -355,29 +357,31 @@ const BADGE = {
   '재컨택요망': ['#fef9c3','#854d0e'],
 };
 
+// <table>과 div 그리드(role=gridcell) 둘 다 대응
+const CELL = 'td, [role="gridcell"], [role="cell"]';
+const ROW  = 'tr, [role="row"]';
+
 function applyBadges() {
-  document.querySelectorAll('td').forEach(td => {
-    const txt = (td.innerText || '').trim();
+  document.querySelectorAll(CELL).forEach(cell => {
+    const txt = (cell.textContent || '').trim();
     if (!txt) return;
 
-    // 완납 / COD
     if (txt === '완납' || txt === 'COD') {
-      td.style.setProperty('font-weight', '700', 'important');
+      cell.style.setProperty('font-weight', '700', 'important');
       return;
     }
 
-    // 뱃지
     const color = BADGE[txt];
     if (!color) return;
-    if (!td.querySelector('.__kih')) {
-      td.innerHTML = `<span class="__kih" style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600;background:${color[0]};color:${color[1]};">${txt}</span>`;
-    }
+    // innerHTML 교체 안 함 — React가 그린 DOM을 깨지 않도록 스타일만 입힘
+    cell.style.setProperty('color', color[1], 'important');
+    cell.style.setProperty('font-weight', '600', 'important');
 
-    // 재컨택요망 → 행 노란 배경
     if (txt === '재컨택요망') {
-      td.closest('tr')?.querySelectorAll('td').forEach(c => {
-        c.style.setProperty('background-color', '#fef9c3', 'important');
-      });
+      cell.closest(ROW)?.querySelectorAll(CELL).forEach(c =>
+        c.style.setProperty('background-color', '#fef9c3', 'important'));
+    } else {
+      cell.style.setProperty('background-color', color[0], 'important');
     }
   });
 }
@@ -387,7 +391,7 @@ let _t;
 function observe() {
   new MutationObserver(() => {
     clearTimeout(_t);
-    _t = setTimeout(() => { applyBadges(); applyMyRow(); }, 600);
+    _t = setTimeout(() => { applyMyRow(); applyBadges(); }, 600); // 뱃지가 마지막 → 재컨택 노랑이 초록에 안 가려짐
   }).observe(document.body, { childList: true, subtree: true });
 }
 
