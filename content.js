@@ -324,26 +324,35 @@ function applyContactFilters(isoDate, mentor, resultEl) {
   }, 350); // 드롭다운 전환 후 input이 바뀔 수 있으므로 대기
 }
 
-// Ant Design Select에서 현재값→목표값으로 변경
-// currentText: 현재 보이는 텍스트 (예: '문의자', '메인담당')
-// targetText:  바꿀 텍스트 (예: '결과메모', '메인+서브')
+// Ant Design Select 전환 (클릭 → 옵션 선택)
 function switchAntSelect(currentText, targetText) {
-  const antSelects = Array.from(document.querySelectorAll('.ant-select'));
-  const sel = antSelects.find(s => {
-    const item = s.querySelector('.ant-select-selection-item');
-    return item && item.textContent.trim() === currentText;
-  });
-  if (!sel) return;
+  // title 속성 또는 textContent로 현재 선택 항목 찾기
+  const item = Array.from(document.querySelectorAll('.ant-select-selection-item'))
+    .find(el => el.textContent.trim() === currentText || el.getAttribute('title') === currentText);
+  if (!item) return;
 
-  sel.click();
-  setTimeout(() => {
+  const wrap = item.closest('.ant-select');
+  if (!wrap) return;
+
+  // 드롭다운 열기 — selector 안쪽 클릭
+  const selector = wrap.querySelector('.ant-select-selector');
+  (selector || wrap).click();
+
+  // 옵션이 DOM에 렌더될 때까지 polling (최대 1초)
+  let attempts = 0;
+  const pick = setInterval(() => {
+    attempts++;
     const opts = document.querySelectorAll('.ant-select-item-option-content');
     const opt  = Array.from(opts).find(el => el.textContent.trim() === targetText);
-    if (opt) opt.click();
-  }, 250);
+    if (opt) {
+      opt.click();
+      clearInterval(pick);
+    } else if (attempts > 10) {
+      clearInterval(pick); // 타임아웃
+    }
+  }, 100);
 }
 
-// 하위 호환 alias
 function switchSearchType(targetText) {
   switchAntSelect('문의자', targetText);
 }
@@ -584,9 +593,14 @@ function applyStatusBadges() {
     const cls = STATUS_MAP[txt];
     if (cls && !td.querySelector('.kih-badge')) {
       td.innerHTML = `<span class="kih-badge ${cls}">${txt}</span>`;
-      // 재컨택요망이면 행 전체 노란 배경
+      // 재컨택요망이면 행 전체 td에 노란 배경 직접 주입
       if (txt === '재컨택요망') {
-        td.closest('tr')?.classList.add('kih-row-recontact');
+        const tr = td.closest('tr');
+        if (tr) {
+          tr.querySelectorAll('td').forEach(cell => {
+            cell.style.setProperty('background-color', '#fef9c3', 'important');
+          });
+        }
       }
     }
   });
