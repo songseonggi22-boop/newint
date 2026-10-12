@@ -371,7 +371,9 @@ const CELL = 'td, [role="gridcell"], [role="cell"]';
 const ROW  = 'tr, [role="row"]';
 
 function applyBadges() {
-  document.querySelectorAll(CELL).forEach(cell => {
+  // DB 목록 그리드(.k-grid) 안에서만. 상세화면 입력칸은 건드리면 인트라넷이 에러남
+  document.querySelectorAll('.k-grid td').forEach(cell => {
+    if (cell.children.length && !cell.querySelector('.__kih')) return; // 버튼·입력 등 요소가 든 칸은 제외
     const raw = (cell.textContent || '').trim();
     // 띄어쓰기 무시 + 인트라넷 표기 "컨텍"을 "컨택"으로 통일
     const txt = raw.replace(/\s+/g, '').replace(/텍/g, '택');
