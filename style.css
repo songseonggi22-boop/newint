@@ -31,8 +31,8 @@ table tbody tr:hover            { background-color: #e8f0fe !important; }
 .kih-badge-recontact  { background:#ffedd5; color:#9a3412; }   /* 주황 - 재컨택요망 */
 
 /* ── 재컨택요망 행 노란 배경 ── */
-tr.kih-row-recontact { background-color: #fef9c3 !important; }
-tr.kih-row-recontact:hover { background-color: #fef08a !important; }
+tr.kih-row-recontact td { background-color: #fef9c3 !important; }
+tr.kih-row-recontact:hover td { background-color: #fef08a !important; }
 
 /* ── 내 담당자 행 강조 ── */
 tr.kih-my-row td { background-color: #bbf7d0 !important; font-weight: 700 !important; }
