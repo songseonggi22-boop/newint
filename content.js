@@ -310,7 +310,7 @@ function applyContactFilters(isoDate, mentor, resultEl) {
   // ② "결과메모" 전환 후 검색어 input에 날짜 입력 (포맷: YYYY-MM-DD)
   setTimeout(() => {
     const searchInput = document.querySelector('input[placeholder="검색어를 입력해 주세요"]');
-    if (searchInput) setVal(searchInput, isoDate);
+    if (searchInput) setVal(searchInput, isoToMD(isoDate)); // MM.DD 형식
 
     // ③ 멘토선택 input에 담당자 이름
     if (mentor) {
@@ -630,6 +630,12 @@ function parseDayFromLabel(txt, mon) {
   m = txt.match(/\d{4}-\d{2}-(\d{2})/);
   if (m) return +m[1];
   return null;
+}
+
+// YYYY-MM-DD → MM.DD (예: 2026-10-12 → 10.12)
+function isoToMD(iso) {
+  const [,m,d] = iso.split('-');
+  return `${parseInt(m)}.${parseInt(d)}`;
 }
 
 function toISO(date) {
