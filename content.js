@@ -129,7 +129,7 @@ function buildPanel() {
         <div id="biz-list"></div>
       </div>
       <div id="pane-settings" class="pane">
-        <label>내 이름 <span class="hint">(내 행 초록 강조)</span></label>
+        <label>내 이름 <span class="hint">(내 담당 행 굵게)</span></label>
         <div class="row">
           <input id="i-name" type="text" placeholder="예: 송성기" value="${window._kihMe}"/>
           <button class="sm g" id="btn-save">저장</button>
