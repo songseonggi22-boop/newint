@@ -300,25 +300,26 @@ function goToContactDB() {
 }
 
 // 문의DB 페이지에서 필터 적용 + 조회
+// - DatePicker는 건드리지 않음
+// - 문의자 → 결과메모 전환
+// - 검색어 input에 날짜, 멘토선택 input에 담당자 이름
 function applyContactFilters(isoDate, mentor, resultEl) {
-  // ① 검색 기준을 "결과메모"로 변경
+  // ① 문의자 → 결과메모 전환
   switchSearchType('결과메모');
 
-  // ② Ant Design DatePicker에 날짜 입력 (시작일=종료일=isoDate)
-  const startInput = document.querySelector('input[date-range="start"]');
-  const endInput   = document.querySelector('input[date-range="end"]');
-  if (startInput && endInput) {
-    setAntDate(startInput, isoDate);
-    setTimeout(() => {
-      setAntDate(endInput, isoDate);
-      setTimeout(() => finishContactSearch(isoDate, mentor, resultEl), 400);
-    }, 300);
-  } else {
-    // fallback: 일반 date input
-    const dates = Array.from(document.querySelectorAll('input[type="date"]'));
-    dates.forEach(inp => setVal(inp, isoDate));
-    setTimeout(() => finishContactSearch(isoDate, mentor, resultEl), 400);
-  }
+  // ② "결과메모" 전환 후 검색어 input에 날짜 입력 (포맷: YYYY-MM-DD)
+  setTimeout(() => {
+    const searchInput = document.querySelector('input[placeholder="검색어를 입력해 주세요"]');
+    if (searchInput) setVal(searchInput, isoDate);
+
+    // ③ 멘토선택 input에 담당자 이름
+    if (mentor) {
+      const mentorInput = document.querySelector('input[placeholder="멘토선택"]');
+      if (mentorInput) setVal(mentorInput, mentor);
+    }
+
+    finishContactSearch(isoDate, mentor, resultEl);
+  }, 350); // 드롭다운 전환 후 input이 바뀔 수 있으므로 대기
 }
 
 // "문의자" Ant Design Select → "결과메모"로 변경
@@ -360,15 +361,7 @@ function setAntDate(input, isoDate) {
 }
 
 function finishContactSearch(isoDate, mentor, resultEl) {
-  // ① "멘토선택" placeholder가 있는 input에 담당자 이름 입력
-  if (mentor) {
-    const mentorInput = document.querySelector('input[placeholder="멘토선택"]');
-    if (mentorInput) {
-      setVal(mentorInput, mentor);
-    }
-  }
-
-  // ② 조회 버튼 클릭
+  // 조회 버튼 클릭
   const qBtn = findBtn(['조회','검색']);
   if (qBtn) {
     qBtn.click();
