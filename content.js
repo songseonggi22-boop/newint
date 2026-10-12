@@ -357,7 +357,7 @@ const BADGE = {
   '컨택완료':   ['#fef3c7','#92400e'],
   '전화안받음': ['#f3e8ff','#6b21a8'],
   '상담완료':   ['#dcfce7','#14532d'],
-  '재컨택요망': ['#fde68a','#854d0e'], // 행 배경(#fef9c3)보다 한 톤 진하게 → 뱃지가 묻히지 않음
+  '재컨택요망': ['#fef9c3','#854d0e'],
 };
 
 // <table>과 div 그리드(role=gridcell) 둘 다 대응
@@ -383,11 +383,6 @@ function applyBadges() {
     // 작은 타원형 뱃지
     if (!cell.querySelector('.__kih')) {
       cell.innerHTML = `<span class="__kih" style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:600;line-height:1.6;background:${color[0]};color:${color[1]};">${raw}</span>`;
-    }
-
-    if (key === '재컨택요망') {
-      cell.closest(ROW)?.querySelectorAll(CELL).forEach(c =>
-        c.style.setProperty('background-color', '#fef9c3', 'important'));
     }
   });
 }
