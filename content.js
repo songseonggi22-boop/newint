@@ -70,11 +70,11 @@ chrome.storage.local.get(['holidays','myName','pendingContact'], data => {
   window._kihMe = data.myName        || '';
   window._kihPC = data.pendingContact || null;
 
-  buildPanel();
+  if (window === window.top) buildPanel(); // 패널은 최상위 프레임에만, 뱃지는 모든 프레임
   applyMyRow();
   applyBadges();
   observe();
-  if (window._kihPC) setTimeout(runPending, 1200);
+  if (window._kihPC && window === window.top) setTimeout(runPending, 1200);
 });
 
 // ── 패널 빌드 (Shadow DOM) ───────────────────────────────────
@@ -170,7 +170,9 @@ function doContact() {
   const out     = S.getElementById('r-contact');
   if (!isoDate) { out.textContent = '날짜를 선택해주세요.'; return; }
 
-  const onContactPage = /문의db|문의/i.test(document.title + location.href + document.body.innerText.slice(0,300));
+  // 메뉴 글자 말고, 실제 검색구분 셀렉트가 있는지로 판단
+  const onContactPage = q('.ant-select-selection-item')
+    .some(el => ['문의자','결과메모'].includes(labelOf(el)));
   if (onContactPage) {
     out.textContent = '⏳ 필터 적용 중…';
     applyFilters(isoDate, mentor, out);
@@ -188,12 +190,12 @@ function applyFilters(isoDate, mentor, out) {
     selectChange('메인담당', '메인+서브', () => {
       setTimeout(() => {
         // ③ 검색어에 날짜 (MM.DD 형식)
-        const si = document.querySelector('input[placeholder="검색어를 입력해 주세요"]');
+        const si = q('input[placeholder="검색어를 입력해 주세요"]')[0];
         if (si) setReactVal(si, isoToMD(isoDate));
 
         // ④ 멘토선택
         if (mentor) {
-          const mi = document.querySelector('input[placeholder="멘토선택"]');
+          const mi = q('input[placeholder="멘토선택"]')[0];
           if (mi) setReactVal(mi, mentor);
         }
 
@@ -210,13 +212,18 @@ function applyFilters(isoDate, mentor, out) {
 
 // Ant Design Select 값 변경 (currentLabel → targetLabel)
 function selectChange(currentLabel, targetLabel, cb) {
-  // 현재 값이 currentLabel인 ant-select 찾기
-  const span = Array.from(document.querySelectorAll('.ant-select-selection-item'))
-    .find(el => (el.innerText || el.textContent).trim() === currentLabel);
+  const items = q('.ant-select-selection-item');
+  const span = items.find(el => labelOf(el) === currentLabel);
 
-  if (!span) { console.warn('[KIH] 셀렉트 못 찾음:', currentLabel); cb?.(); return; }
+  if (!span) {
+    // 이미 바뀌어 있으면 정상 — 그냥 다음 단계로
+    if (!items.some(el => labelOf(el) === targetLabel))
+      console.warn('[KIH] 셀렉트 못 찾음:', currentLabel, '/ 보이는 셀렉트:', items.map(labelOf));
+    cb?.(); return;
+  }
   const wrap = span.closest('.ant-select');
   if (!wrap) { cb?.(); return; }
+  const doc = wrap.ownerDocument; // iframe 안이면 그 문서
 
   // antd Select는 click이 아니라 mousedown에 열림
   const sel = wrap.querySelector('.ant-select-selector') || wrap;
@@ -225,7 +232,7 @@ function selectChange(currentLabel, targetLabel, cb) {
   let n = 0;
   const t = setInterval(() => {
     // 닫힌 드롭다운(hidden)은 제외하고 열린 것에서만 옵션 탐색
-    const opt = Array.from(document.querySelectorAll(
+    const opt = Array.from(doc.querySelectorAll(
       '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
       .find(el => (el.getAttribute('title') || el.textContent).trim() === targetLabel);
     if (opt) { clearInterval(t); opt.click(); setTimeout(cb, 250); }
@@ -418,9 +425,20 @@ function setAntDate(input, iso) {
 }
 
 function findBtn(labels) {
-  return Array.from(document.querySelectorAll('button,input[type=button]'))
-    .find(b => labels.some(l => b.textContent.trim().includes(l)));
+  const btns = q('button,input[type=button]');
+  for (const l of labels) {
+    const b = btns.find(b => b.textContent.trim().includes(l));
+    if (b) return b;
+  }
 }
+
+// 최상위 문서 + 같은 출처 iframe 문서 전체에서 검색
+function q(sel) {
+  const docs = [document];
+  document.querySelectorAll('iframe').forEach(f => { try { if (f.contentDocument) docs.push(f.contentDocument); } catch (_) {} });
+  return docs.flatMap(d => Array.from(d.querySelectorAll(sel)));
+}
+function labelOf(el) { return (el.getAttribute('title') || el.textContent || '').trim(); }
 
 function toISO(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
