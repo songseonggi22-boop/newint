@@ -1,7 +1,82 @@
-// 인트라넷 도우미 v5
-// - 시간표관리: 개강일 버튼 → 드롭다운 자동 선택 + 조회
-// - 컨택 조회: 도메인별문의DB로 이동 + 날짜·담당자 필터 자동 적용
+// 인트라넷 도우미 v8 (Shadow DOM 격리)
 'use strict';
+
+// Shadow DOM 안에서만 쓰는 CSS (인트라넷 간섭 없음)
+const KIH_SHADOW_CSS = `
+*, *::before, *::after { box-sizing: border-box; }
+:host { all: initial; }
+
+#kih-toggle-btn {
+  position: fixed; bottom: 24px; right: 24px;
+  width: 48px; height: 48px; border-radius: 50%;
+  background: #4f46e5; color: #fff; border: none;
+  font-size: 22px; cursor: pointer; line-height: 48px;
+  text-align: center; padding: 0;
+  box-shadow: 0 4px 16px rgba(79,70,229,0.4);
+}
+#kih-main-panel {
+  position: fixed; bottom: 84px; right: 24px;
+  width: 320px; max-height: calc(100vh - 120px);
+  background: #fff; border: 1px solid #e5e7eb;
+  border-radius: 14px; box-shadow: 0 8px 32px rgba(0,0,0,0.15);
+  overflow: hidden; display: none;
+  flex-direction: column; font-family: 'Noto Sans KR', sans-serif;
+  font-size: 13px; color: #111;
+}
+#kih-main-panel.open { display: flex; }
+
+#kih-tab-bar { display: flex; flex-direction: row; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }
+.kih-tab {
+  flex: 1; padding: 9px 4px; background: none; border: none;
+  border-bottom: 2px solid transparent; cursor: pointer;
+  font-size: 12px; color: #6b7280; font-weight: 500; white-space: nowrap;
+}
+.kih-tab.active { color: #4f46e5; border-bottom: 2px solid #4f46e5; font-weight: 700; }
+
+.kih-tab-content { display: none; padding: 12px 14px; overflow-y: auto; flex: 1; }
+.kih-tab-content.active { display: block; }
+
+label { display: block; font-size: 11px; color: #6b7280; margin: 6px 0 3px; }
+input[type="text"], input[type="date"], input[type="month"] {
+  width: 100%; padding: 6px 8px; border: 1px solid #d1d5db;
+  border-radius: 7px; font-size: 13px; outline: none;
+}
+.kih-row { display: flex; flex-direction: row; gap: 6px; align-items: center; margin-bottom: 2px; }
+.kih-row input { flex: 1; }
+
+.kih-btn-primary {
+  width: 100%; padding: 8px; background: #4f46e5; color: #fff;
+  border: none; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600;
+}
+.kih-btn-sm {
+  padding: 6px 10px; background: #6b7280; color: #fff;
+  border: none; border-radius: 7px; cursor: pointer; font-size: 12px; white-space: nowrap;
+}
+.kih-btn-sm.kih-green { background: #059669; }
+
+.kih-result { margin-top: 8px; font-size: 12px; color: #374151; line-height: 1.6; }
+.kih-desc { font-size: 11px; color: #9ca3af; margin: 0 0 6px; line-height: 1.5; }
+.kih-hint { color: #9ca3af; font-weight: normal; font-size: 10px; }
+
+#kih-gagang-grid { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.kih-gagang-btn {
+  padding: 4px 8px; background: #ede9fe; color: #4f46e5;
+  border: 1px solid #c4b5fd; border-radius: 8px; cursor: pointer;
+  font-size: 12px; font-weight: 600;
+}
+.kih-gagang-btn:hover, .kih-gagang-btn.kih-selected { background: #4f46e5; color: #fff; }
+.kih-gagang-btn.kih-past { opacity: 0.5; }
+
+.kih-mentor-chip {
+  display: inline-block; margin: 2px; padding: 3px 9px;
+  background: #f3f4f6; border-radius: 10px; font-size: 12px;
+}
+.kih-summary-title { font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+.kih-bizday-chip {
+  display: inline-block; margin: 2px; background: #ede9fe;
+  color: #4f46e5; padding: 1px 6px; border-radius: 8px; font-size: 10px;
+}
+`;
 
 const GAGANG_DATES = [
   '2025-12-10','2026-01-12','2026-02-10','2026-03-16',
@@ -53,9 +128,21 @@ function detectPageAndInit() {
 // 플로팅 컨트롤 패널 (모든 페이지에 항상 표시)
 // ═══════════════════════════════════════════════════════════════
 function injectFloatingPanel(isSchedule, isContactPage) {
-  if (document.getElementById('kih-main-panel')) return;
+  if (document.getElementById('kih-host')) return;
 
   const todayISO = toISO(new Date());
+
+  // Shadow DOM 호스트 — 인트라넷 CSS 완전 차단
+  const host = document.createElement('div');
+  host.id = 'kih-host';
+  host.style.cssText = 'all:initial;position:fixed;bottom:0;right:0;z-index:2147483647;';
+  document.body.appendChild(host);
+  const shadow = host.attachShadow({ mode: 'open' });
+
+  // Shadow 안에 스타일 + 패널 주입
+  const styleEl = document.createElement('style');
+  styleEl.textContent = KIH_SHADOW_CSS;
+  shadow.appendChild(styleEl);
 
   const panel = document.createElement('div');
   panel.id = 'kih-main-panel';
@@ -119,13 +206,17 @@ function injectFloatingPanel(isSchedule, isContactPage) {
     </div>
   `;
 
-  // 토글 버튼
+  // Shadow 안에 toggle + panel 추가
   const toggle = document.createElement('button');
   toggle.id = 'kih-toggle-btn';
   toggle.textContent = '🏢';
   toggle.title = '인트라넷 도우미 (Alt+K)';
-  document.body.appendChild(toggle);
-  document.body.appendChild(panel);
+  shadow.appendChild(toggle);
+  shadow.appendChild(panel);
+
+  // shadow 내 querySelector 헬퍼
+  const $ = id => shadow.getElementById(id);
+  window._kihShadow = shadow; // 외부 함수 접근용
 
   // 개강일 버튼 렌더
   renderGagangGrid();
@@ -135,26 +226,26 @@ function injectFloatingPanel(isSchedule, isContactPage) {
     tab.addEventListener('click', () => {
       panel.querySelectorAll('.kih-tab,.kih-tab-content').forEach(el => el.classList.remove('active'));
       tab.classList.add('active');
-      document.getElementById(`kih-tab-${tab.dataset.tab}`).classList.add('active');
+      $(`kih-tab-${tab.dataset.tab}`)?.classList.add('active');
     });
   });
 
   // 이벤트
   toggle.addEventListener('click', () => panel.classList.toggle('open'));
-  document.getElementById('kih-today-btn').addEventListener('click', () => {
-    document.getElementById('kih-date-input').value = toISO(new Date());
+  $('kih-today-btn').addEventListener('click', () => {
+    $('kih-date-input').value = toISO(new Date());
   });
-  document.getElementById('kih-go-contact').addEventListener('click', goToContactDB);
-  document.getElementById('kih-auto-check').addEventListener('click', autoCheckBizDays);
-  document.getElementById('kih-check-all').addEventListener('click', () => toggleAllCheckboxes(true));
-  document.getElementById('kih-uncheck-all').addEventListener('click', () => toggleAllCheckboxes(false));
-  document.getElementById('kih-myname-save').addEventListener('click', saveMyName);
-  document.getElementById('kih-ym-input').addEventListener('change', e => loadHolidayInput(e.target.value));
+  $('kih-go-contact').addEventListener('click', goToContactDB);
+  $('kih-auto-check').addEventListener('click', autoCheckBizDays);
+  $('kih-check-all').addEventListener('click', () => toggleAllCheckboxes(true));
+  $('kih-uncheck-all').addEventListener('click', () => toggleAllCheckboxes(false));
+  $('kih-myname-save').addEventListener('click', saveMyName);
+  $('kih-ym-input').addEventListener('change', e => loadHolidayInput(e.target.value));
 
   // 현재 달 기본값
   const now = new Date();
   const defaultYM = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  document.getElementById('kih-ym-input').value = defaultYM;
+  $('kih-ym-input').value = defaultYM;
   loadHolidayInput(defaultYM);
 
   // 단축키
@@ -166,14 +257,19 @@ function injectFloatingPanel(isSchedule, isContactPage) {
 }
 
 function switchTab(name) {
-  document.querySelectorAll('.kih-tab,.kih-tab-content').forEach(el => el.classList.remove('active'));
-  document.querySelector(`.kih-tab[data-tab="${name}"]`)?.classList.add('active');
-  document.getElementById(`kih-tab-${name}`)?.classList.add('active');
+  const s = window._kihShadow;
+  if (!s) return;
+  s.querySelectorAll('.kih-tab,.kih-tab-content').forEach(el => el.classList.remove('active'));
+  s.querySelector(`.kih-tab[data-tab="${name}"]`)?.classList.add('active');
+  s.getElementById(`kih-tab-${name}`)?.classList.add('active');
 }
+
+// shadow 내 getElementById 헬퍼 (패널 초기화 이후 접근용)
+function $s(id) { return window._kihShadow?.getElementById(id); }
 
 // ─── 개강일 버튼 그리드 ─────────────────────────────────────
 function renderGagangGrid() {
-  const grid = document.getElementById('kih-gagang-grid');
+  const grid = $s('kih-gagang-grid');
   if (!grid) return;
   const today = new Date();
   const recent = GAGANG_DATES
@@ -202,8 +298,6 @@ function renderGagangGrid() {
 // ─── 개강일 선택 → 시간표 DatePicker 자동 설정 ─────────────
 // 시작일 = 선택한 개강일, 종료일 = 다음 개강일 전날
 function selectGagangDate(dateStr) {
-  const resultEl = document.getElementById('kih-schedule-result');
-
   // 다음 개강일 계산
   const nextGagang = GAGANG_DATES.find(d => d > dateStr) || dateStr;
   const endDate    = nextGagang === dateStr
@@ -213,26 +307,24 @@ function selectGagangDate(dateStr) {
   const startInput = document.querySelector('input[date-range="start"]');
   const endInput   = document.querySelector('input[date-range="end"]');
 
+  const resultEl = $s('kih-schedule-result');
+
   if (startInput && endInput) {
-    // Ant Design DatePicker에 직접 입력
     setAntDate(startInput, dateStr);
     setTimeout(() => {
       setAntDate(endInput, endDate);
-      resultEl.innerHTML = `✅ ${formatDate(dateStr)} ~ ${formatDate(endDate)}`;
-      // 조회 버튼 자동 클릭
+      if (resultEl) resultEl.innerHTML = `✅ ${formatDate(dateStr)} ~ ${formatDate(endDate)}`;
       setTimeout(() => {
         const qBtn = findBtn(['조회','검색']);
-        if (qBtn) { qBtn.click(); resultEl.innerHTML += ' — 조회 실행됨'; }
-        // 조회 결과에 영업일 뱃지
+        if (qBtn) { qBtn.click(); if (resultEl) resultEl.innerHTML += ' — 조회 실행됨'; }
         setTimeout(() => overlayBizDayBadges(dateStr), 1000);
       }, 400);
     }, 350);
   } else {
-    // DatePicker 없음 → 메뉴 이동 시도
-    resultEl.innerHTML = '⏳ 시간표관리 메뉴로 이동 중…';
+    if (resultEl) resultEl.innerHTML = '⏳ 시간표관리 메뉴로 이동 중…';
     chrome.storage.local.set({ pendingSchedule: dateStr });
     const ok = navigateByMenu(['운영관리','시간표관리','시간표관리']);
-    if (!ok) resultEl.innerHTML = `<span style="color:#ef4444">시간표관리 페이지로 먼저 이동해주세요.</span>`;
+    if (!ok && resultEl) resultEl.innerHTML = `<span style="color:#ef4444">시간표관리 페이지로 먼저 이동해주세요.</span>`;
   }
 }
 
@@ -266,9 +358,9 @@ function overlayBizDayBadges(dateStr) {
 // 컨택 조회 → 도메인별문의DB 페이지 이동 후 필터 적용
 // ═══════════════════════════════════════════════════════════════
 function goToContactDB() {
-  const isoDate = document.getElementById('kih-date-input').value;
-  const mentor  = document.getElementById('kih-mentor-input').value.trim();
-  const resultEl = document.getElementById('kih-contact-result');
+  const isoDate = $s('kih-date-input')?.value;
+  const mentor  = $s('kih-mentor-input')?.value.trim() || '';
+  const resultEl = $s('kih-contact-result');
   if (!isoDate) { resultEl.textContent = '날짜를 선택해주세요.'; return; }
 
   // 이미 문의DB 페이지면 바로 필터 적용
@@ -435,13 +527,12 @@ function executePendingContact() {
   chrome.storage.local.remove('pendingContact');
   window._kihPendingContact = null;
 
-  // 패널 열고 컨택 탭으로 이동
-  document.getElementById('kih-main-panel')?.classList.add('open');
+  window._kihShadow?.getElementById('kih-main-panel')?.classList.add('open');
   switchTab('contact');
-  if (p.date)   setVal(document.getElementById('kih-date-input'),   p.date);
-  if (p.mentor) setVal(document.getElementById('kih-mentor-input'), p.mentor);
+  if (p.date)   setVal($s('kih-date-input'),   p.date);
+  if (p.mentor) setVal($s('kih-mentor-input'), p.mentor);
 
-  const resultEl = document.getElementById('kih-contact-result');
+  const resultEl = $s('kih-contact-result');
   resultEl.textContent = '⏳ 필터 적용 중…';
   setTimeout(() => applyContactFilters(p.date, p.mentor, resultEl), 800);
 }
@@ -508,11 +599,11 @@ function injectScheduleQuickBtns() {
 
 // ─── 영업일 체크박스 ─────────────────────────────────────────
 function autoCheckBizDays() {
-  const ym  = document.getElementById('kih-ym-input').value;
-  const resultEl = document.getElementById('kih-schedule-result');
-  if (!ym) { resultEl.textContent = '연월을 선택해주세요.'; return; }
+  const ym  = $s('kih-ym-input')?.value;
+  const resultEl = $s('kih-schedule-result');
+  if (!ym) { if (resultEl) resultEl.textContent = '연월을 선택해주세요.'; return; }
 
-  const val      = document.getElementById('kih-holiday-input').value;
+  const val = $s('kih-holiday-input')?.value || '';
   const holidays = val.split(',').map(s=>parseInt(s.trim())).filter(n=>!isNaN(n)&&n>=1&&n<=31);
   window._kihHolidays[ym] = holidays;
   chrome.storage.local.set({ holidays: window._kihHolidays });
@@ -547,12 +638,12 @@ function toggleAllCheckboxes(check) {
 }
 
 function loadHolidayInput(ym) {
-  const el = document.getElementById('kih-holiday-input');
+  const el = $s('kih-holiday-input');
   if (el) el.value = (window._kihHolidays[ym]||[]).join(',');
 }
 
 function renderBizDayList(mon, bizDays) {
-  const el = document.getElementById('kih-bizday-list');
+  const el = $s('kih-bizday-list');
   if (!el) return;
   el.innerHTML = `<div style="font-size:11px;margin-top:6px;"><b>${mon}월 영업일 ${bizDays.length}일</b><br>` +
     bizDays.map((d,i)=>`<span class="kih-bizday-chip">${i+1}영업일=${d}일</span>`).join('') + '</div>';
@@ -560,11 +651,12 @@ function renderBizDayList(mon, bizDays) {
 
 // ─── 내 이름 설정 ────────────────────────────────────────────
 function saveMyName() {
-  const name = document.getElementById('kih-myname-input').value.trim();
+  const name = $s('kih-myname-input')?.value.trim() || '';
   window._kihMyName = name;
   chrome.storage.local.set({ myName: name });
   applyMyNameHighlight();
-  document.getElementById('kih-settings-result').textContent = `✅ "${name}" 저장됨`;
+  const r = $s('kih-settings-result');
+  if (r) r.textContent = `✅ "${name}" 저장됨`;
 }
 
 // ─── 상태 뱃지 ──────────────────────────────────────────────
