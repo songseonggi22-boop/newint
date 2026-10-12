@@ -22,10 +22,13 @@ table tbody tr:hover            { background-color: #e8f0fe !important; }
   font-size: 12px;
   font-weight: 600;
 }
-.kih-badge-assigned   { background:#d1fae5; color:#065f46; }
-.kih-badge-unassigned { background:#fee2e2; color:#991b1b; }
-.kih-badge-scheduled  { background:#dbeafe; color:#1e40af; }
-.kih-badge-contact    { background:#fef3c7; color:#92400e; }
+.kih-badge-assigned   { background:#d1fae5; color:#065f46; }   /* 초록 - 배정완료 */
+.kih-badge-unassigned { background:#fee2e2; color:#991b1b; }   /* 빨강 - 미배정 */
+.kih-badge-scheduled  { background:#dbeafe; color:#1e40af; }   /* 파랑 - 상담예정 */
+.kih-badge-contact    { background:#fef3c7; color:#92400e; }   /* 노랑 - 컨택 */
+.kih-badge-noanswer   { background:#f3e8ff; color:#6b21a8; }   /* 보라 - 전화안받음 */
+.kih-badge-done       { background:#dcfce7; color:#14532d; }   /* 민트 - 상담완료 */
+.kih-badge-recontact  { background:#ffedd5; color:#9a3412; }   /* 주황 - 재컨택요망 */
 
 /* ── 내 담당자 행 강조 ── */
 tr.kih-my-row { background-color: #d1fae5 !important; font-weight: 600 !important; }

@@ -559,9 +559,17 @@ function saveMyName() {
 
 // ─── 상태 뱃지 ──────────────────────────────────────────────
 const STATUS_MAP = {
-  '배정완료':'kih-badge-assigned','미배정':'kih-badge-unassigned',
-  '상담예정':'kih-badge-scheduled','컨택':'kih-badge-contact',
-  '컨택완료':'kih-badge-contact','내사예약':'kih-badge-scheduled',
+  // 배정 상태
+  '배정완료':    'kih-badge-assigned',
+  '미배정':      'kih-badge-unassigned',
+  '내사예약':    'kih-badge-scheduled',
+  '컨택':        'kih-badge-contact',
+  '컨택완료':    'kih-badge-contact',
+  // 상담구분
+  '전화안받음':  'kih-badge-noanswer',
+  '상담예정':    'kih-badge-scheduled',
+  '상담완료':    'kih-badge-done',
+  '재컨택요망':  'kih-badge-recontact',
 };
 function applyStatusBadges() {
   document.querySelectorAll('td').forEach(td => {
