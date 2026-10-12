@@ -321,38 +321,24 @@ function applyContactFilters(isoDate, mentor, resultEl) {
   }
 }
 
-// 검색 기준 드롭다운에서 특정 항목 선택 (문의자 → 결과메모 등)
+// "문의자" Ant Design Select → "결과메모"로 변경
 function switchSearchType(targetText) {
-  // Ant Design Select: 클릭으로 드롭다운 열고 항목 선택
-  const selectors = [
-    // select 태그 (일반)
-    ...Array.from(document.querySelectorAll('select')).filter(s =>
-      Array.from(s.options).some(o => o.textContent.includes('문의자') || o.textContent.includes('결과메모'))
-    ),
-  ];
+  // "문의자" 텍스트가 보이는 ant-select 찾기
+  const antSelects = Array.from(document.querySelectorAll('.ant-select'));
+  const target = antSelects.find(sel => {
+    const item = sel.querySelector('.ant-select-selection-item');
+    return item && item.textContent.trim() === '문의자';
+  });
+  if (!target) return;
 
-  // select 태그면 바로 변경
-  for (const sel of selectors) {
-    const opt = Array.from(sel.options).find(o => o.textContent.includes(targetText));
-    if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event('change',{bubbles:true})); return; }
-  }
-
-  // Ant Design Select (.ant-select) 처리
-  const antSelects = document.querySelectorAll('.ant-select');
-  for (const antSel of antSelects) {
-    const cur = antSel.querySelector('.ant-select-selection-item');
-    if (cur && /문의자|결과메모|검색기준/i.test(cur.textContent)) {
-      // 클릭으로 드롭다운 열기
-      antSel.click();
-      setTimeout(() => {
-        // 드롭다운 팝업에서 항목 찾기
-        const items = document.querySelectorAll('.ant-select-item-option-content');
-        const target = Array.from(items).find(el => el.textContent.includes(targetText));
-        if (target) target.click();
-      }, 200);
-      return;
-    }
-  }
+  // 클릭해서 드롭다운 열기
+  target.click();
+  setTimeout(() => {
+    // 팝업 리스트에서 "결과메모" 찾아 클릭
+    const opts = document.querySelectorAll('.ant-select-item-option-content');
+    const opt  = Array.from(opts).find(el => el.textContent.trim() === targetText);
+    if (opt) opt.click();
+  }, 250);
 }
 
 // Ant Design DatePicker에 날짜 입력 (클릭 → 값 지정 → Enter)
@@ -374,14 +360,15 @@ function setAntDate(input, isoDate) {
 }
 
 function finishContactSearch(isoDate, mentor, resultEl) {
-  // 멘토 텍스트 입력 (검색 기준이 멘토인 경우 또는 별도 멘토 필터가 있으면)
+  // ① "멘토선택" placeholder가 있는 input에 담당자 이름 입력
   if (mentor) {
-    // 검색어 input (Ant Design Input)
-    const searchInput = document.querySelector('.ant-input, input.ant-input, input[placeholder*="검색"], input[placeholder*="입력"]');
-    if (searchInput) setVal(searchInput, mentor);
+    const mentorInput = document.querySelector('input[placeholder="멘토선택"]');
+    if (mentorInput) {
+      setVal(mentorInput, mentor);
+    }
   }
 
-  // 조회 버튼 클릭
+  // ② 조회 버튼 클릭
   const qBtn = findBtn(['조회','검색']);
   if (qBtn) {
     qBtn.click();
