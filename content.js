@@ -304,57 +304,55 @@ function goToContactDB() {
 // - 문의자 → 결과메모 전환
 // - 검색어 input에 날짜, 멘토선택 input에 담당자 이름
 function applyContactFilters(isoDate, mentor, resultEl) {
-  // ① 문의자 → 결과메모 전환
-  switchSearchType('결과메모');
-  // 메인담당 → 메인+서브 전환
-  switchAntSelect('메인담당', '메인+서브');
+  // ① 문의자 → 결과메모 (완료 후 ② 실행)
+  switchSearchType('결과메모', () => {
+    // ② 메인담당 → 메인+서브 (완료 후 ③ 실행)
+    switchAntSelect('메인담당', '메인+서브', () => {
+      // ③ 검색어 input에 날짜 입력
+      setTimeout(() => {
+        const searchInput = document.querySelector('input[placeholder="검색어를 입력해 주세요"]');
+        if (searchInput) setVal(searchInput, isoToMD(isoDate));
 
-  // ② 전환 후 검색어 input에 날짜, 멘토 입력
-  setTimeout(() => {
-    const searchInput = document.querySelector('input[placeholder="검색어를 입력해 주세요"]');
-    if (searchInput) setVal(searchInput, isoToMD(isoDate)); // MM.DD 형식
+        if (mentor) {
+          const mentorInput = document.querySelector('input[placeholder="멘토선택"]');
+          if (mentorInput) setVal(mentorInput, mentor);
+        }
 
-    // ③ 멘토선택 input에 담당자 이름
-    if (mentor) {
-      const mentorInput = document.querySelector('input[placeholder="멘토선택"]');
-      if (mentorInput) setVal(mentorInput, mentor);
-    }
-
-    finishContactSearch(isoDate, mentor, resultEl);
-  }, 350); // 드롭다운 전환 후 input이 바뀔 수 있으므로 대기
+        finishContactSearch(isoDate, mentor, resultEl);
+      }, 300);
+    });
+  });
 }
 
-// Ant Design Select 전환 (클릭 → 옵션 선택)
-function switchAntSelect(currentText, targetText) {
-  // title 속성 또는 textContent로 현재 선택 항목 찾기
+// Ant Design Select 전환 — callback으로 완료 통보
+function switchAntSelect(currentText, targetText, callback) {
   const item = Array.from(document.querySelectorAll('.ant-select-selection-item'))
     .find(el => el.textContent.trim() === currentText || el.getAttribute('title') === currentText);
-  if (!item) return;
+  if (!item) { callback?.(); return; }
 
   const wrap = item.closest('.ant-select');
-  if (!wrap) return;
+  if (!wrap) { callback?.(); return; }
 
-  // 드롭다운 열기 — selector 안쪽 클릭
-  const selector = wrap.querySelector('.ant-select-selector');
-  (selector || wrap).click();
+  (wrap.querySelector('.ant-select-selector') || wrap).click();
 
-  // 옵션이 DOM에 렌더될 때까지 polling (최대 1초)
   let attempts = 0;
   const pick = setInterval(() => {
     attempts++;
-    const opts = document.querySelectorAll('.ant-select-item-option-content');
-    const opt  = Array.from(opts).find(el => el.textContent.trim() === targetText);
+    const opt = Array.from(document.querySelectorAll('.ant-select-item-option-content'))
+      .find(el => el.textContent.trim() === targetText);
     if (opt) {
       opt.click();
       clearInterval(pick);
-    } else if (attempts > 10) {
-      clearInterval(pick); // 타임아웃
+      setTimeout(() => callback?.(), 200);
+    } else if (attempts > 15) {
+      clearInterval(pick);
+      callback?.();
     }
   }, 100);
 }
 
-function switchSearchType(targetText) {
-  switchAntSelect('문의자', targetText);
+function switchSearchType(targetText, callback) {
+  switchAntSelect('문의자', targetText, callback);
 }
 
 // Ant Design DatePicker에 날짜 입력 (클릭 → 값 지정 → Enter)
