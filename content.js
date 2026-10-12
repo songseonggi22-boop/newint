@@ -363,8 +363,8 @@ function goToContactDB() {
   const resultEl = $s('kih-contact-result');
   if (!isoDate) { resultEl.textContent = '날짜를 선택해주세요.'; return; }
 
-  // 이미 문의DB 페이지면 바로 필터 적용
-  const isContactPage = /도메인별문의|문의.*db|contactdb/i.test(
+  // 문의DB 계열 페이지면 바로 필터 적용 (도메인별 / 멘토별 모두)
+  const isContactPage = /도메인별문의|멘토별문의|문의.*db|contactdb/i.test(
     location.href + document.title + document.body.innerText.slice(0,400)
   );
 
@@ -675,27 +675,34 @@ const STATUS_MAP = {
 };
 function applyStatusBadges() {
   document.querySelectorAll('td').forEach(td => {
-    const txt = td.textContent.trim();
+    // 자식 요소 무시하고 직접 텍스트만 추출
+    const txt = (td.innerText || td.textContent || '').trim();
 
     // 완납 / COD → 굵은 폰트
     if (txt === '완납' || txt === 'COD') {
-      td.style.fontWeight = '700';
+      td.style.setProperty('font-weight', '700', 'important');
       return;
     }
 
-    // 상태 뱃지
+    // 재컨택요망 — 뱃지 + 행 노란 배경 (매번 강제 재적용)
+    if (txt === '재컨택요망' || txt.includes('재컨택요망')) {
+      if (!td.querySelector('.kih-badge')) {
+        td.innerHTML = `<span class="kih-badge kih-badge-recontact">재컨택요망</span>`;
+      }
+      const tr = td.closest('tr');
+      if (tr) {
+        tr.querySelectorAll('td').forEach(cell => {
+          cell.style.setProperty('background-color', '#fef9c3', 'important');
+          cell.setAttribute('data-kih-recontact', '1');
+        });
+      }
+      return;
+    }
+
+    // 나머지 상태 뱃지
     const cls = STATUS_MAP[txt];
     if (cls && !td.querySelector('.kih-badge')) {
       td.innerHTML = `<span class="kih-badge ${cls}">${txt}</span>`;
-      // 재컨택요망이면 행 전체 td에 노란 배경 직접 주입
-      if (txt === '재컨택요망') {
-        const tr = td.closest('tr');
-        if (tr) {
-          tr.querySelectorAll('td').forEach(cell => {
-            cell.style.setProperty('background-color', '#fef9c3', 'important');
-          });
-        }
-      }
     }
   });
 }
