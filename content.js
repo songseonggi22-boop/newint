@@ -183,6 +183,9 @@ function doContact() {
   }
 }
 
+// 단계 사이 대기(ms). 인트라넷 반영이 늦으면 이 값만 올리면 됨
+const STEP = 800;
+
 function applyFilters(isoDate, mentor, out) {
   // ① 문의자 → 결과메모
   selectChange('문의자', '결과메모', () => {
@@ -204,8 +207,8 @@ function applyFilters(isoDate, mentor, out) {
           const btn = findBtn(['조회','검색']);
           if (btn) { btn.click(); out.textContent = `✅ ${isoToMD(isoDate)} 조회 완료`; }
           else out.textContent = '✅ 필터 적용됨 — 조회 버튼을 눌러주세요';
-        }, 300);
-      }, 300);
+        }, STEP);
+      }, STEP);
     });
   });
 }
@@ -235,7 +238,7 @@ function selectChange(currentLabel, targetLabel, cb) {
     const opt = Array.from(doc.querySelectorAll(
       '.ant-select-dropdown:not(.ant-select-dropdown-hidden) .ant-select-item-option'))
       .find(el => (el.getAttribute('title') || el.textContent).trim() === targetLabel);
-    if (opt) { clearInterval(t); opt.click(); setTimeout(cb, 250); }
+    if (opt) { clearInterval(t); opt.click(); setTimeout(cb, STEP); }
     else if (++n > 20) { clearInterval(t); console.warn('[KIH] 옵션 못 찾음:', targetLabel); cb?.(); }
   }, 100);
 }
