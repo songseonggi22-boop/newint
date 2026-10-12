@@ -306,8 +306,10 @@ function goToContactDB() {
 function applyContactFilters(isoDate, mentor, resultEl) {
   // ① 문의자 → 결과메모 전환
   switchSearchType('결과메모');
+  // 메인담당 → 메인+서브 전환
+  switchAntSelect('메인담당', '메인+서브');
 
-  // ② "결과메모" 전환 후 검색어 input에 날짜 입력 (포맷: YYYY-MM-DD)
+  // ② 전환 후 검색어 input에 날짜, 멘토 입력
   setTimeout(() => {
     const searchInput = document.querySelector('input[placeholder="검색어를 입력해 주세요"]');
     if (searchInput) setVal(searchInput, isoToMD(isoDate)); // MM.DD 형식
@@ -322,24 +324,28 @@ function applyContactFilters(isoDate, mentor, resultEl) {
   }, 350); // 드롭다운 전환 후 input이 바뀔 수 있으므로 대기
 }
 
-// "문의자" Ant Design Select → "결과메모"로 변경
-function switchSearchType(targetText) {
-  // "문의자" 텍스트가 보이는 ant-select 찾기
+// Ant Design Select에서 현재값→목표값으로 변경
+// currentText: 현재 보이는 텍스트 (예: '문의자', '메인담당')
+// targetText:  바꿀 텍스트 (예: '결과메모', '메인+서브')
+function switchAntSelect(currentText, targetText) {
   const antSelects = Array.from(document.querySelectorAll('.ant-select'));
-  const target = antSelects.find(sel => {
-    const item = sel.querySelector('.ant-select-selection-item');
-    return item && item.textContent.trim() === '문의자';
+  const sel = antSelects.find(s => {
+    const item = s.querySelector('.ant-select-selection-item');
+    return item && item.textContent.trim() === currentText;
   });
-  if (!target) return;
+  if (!sel) return;
 
-  // 클릭해서 드롭다운 열기
-  target.click();
+  sel.click();
   setTimeout(() => {
-    // 팝업 리스트에서 "결과메모" 찾아 클릭
     const opts = document.querySelectorAll('.ant-select-item-option-content');
     const opt  = Array.from(opts).find(el => el.textContent.trim() === targetText);
     if (opt) opt.click();
   }, 250);
+}
+
+// 하위 호환 alias
+function switchSearchType(targetText) {
+  switchAntSelect('문의자', targetText);
 }
 
 // Ant Design DatePicker에 날짜 입력 (클릭 → 값 지정 → Enter)
