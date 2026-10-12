@@ -199,48 +199,47 @@ function renderGagangGrid() {
   });
 }
 
-// ─── 개강일 선택 → 시간표 드롭다운 자동 설정 ──────────────
+// ─── 개강일 선택 → 시간표 DatePicker 자동 설정 ─────────────
+// 시작일 = 선택한 개강일, 종료일 = 다음 개강일 전날
 function selectGagangDate(dateStr) {
   const resultEl = document.getElementById('kih-schedule-result');
 
-  // 1) 현재 페이지에 개강일 select가 있으면 바로 선택
-  const sel = findGagangSelect();
-  if (sel) {
-    const opt = Array.from(sel.options).find(o =>
-      o.value.includes(dateStr) || o.textContent.includes(dateStr.replace(/-/g,'.'))
-    );
-    if (opt) {
-      sel.value = opt.value;
-      sel.dispatchEvent(new Event('change', { bubbles: true }));
-      resultEl.innerHTML = `✅ ${dateStr} 선택됨`;
+  // 다음 개강일 계산
+  const nextGagang = GAGANG_DATES.find(d => d > dateStr) || dateStr;
+  const endDate    = nextGagang === dateStr
+    ? dateStr
+    : addDays(nextGagang, -1); // 다음 개강일 전날
+
+  const startInput = document.querySelector('input[date-range="start"]');
+  const endInput   = document.querySelector('input[date-range="end"]');
+
+  if (startInput && endInput) {
+    // Ant Design DatePicker에 직접 입력
+    setAntDate(startInput, dateStr);
+    setTimeout(() => {
+      setAntDate(endInput, endDate);
+      resultEl.innerHTML = `✅ ${formatDate(dateStr)} ~ ${formatDate(endDate)}`;
+      // 조회 버튼 자동 클릭
       setTimeout(() => {
         const qBtn = findBtn(['조회','검색']);
-        if (qBtn) { qBtn.click(); resultEl.innerHTML += ' — 조회 실행'; }
-        // 조회 후 영업일 뱃지
-        setTimeout(() => overlayBizDayBadges(dateStr), 900);
-      }, 300);
-      return;
-    }
-  }
-
-  // 2) 현재 페이지가 시간표관리가 아니면 → 시간표관리로 이동 후 재실행
-  const isSchedulePage = /시간표/.test(document.title + document.body.innerText.slice(0,300));
-  if (!isSchedulePage) {
+        if (qBtn) { qBtn.click(); resultEl.innerHTML += ' — 조회 실행됨'; }
+        // 조회 결과에 영업일 뱃지
+        setTimeout(() => overlayBizDayBadges(dateStr), 1000);
+      }, 400);
+    }, 350);
+  } else {
+    // DatePicker 없음 → 메뉴 이동 시도
     resultEl.innerHTML = '⏳ 시간표관리 메뉴로 이동 중…';
     chrome.storage.local.set({ pendingSchedule: dateStr });
-    navigateByMenu(['운영관리','시간표관리','시간표관리']);
-    return;
+    const ok = navigateByMenu(['운영관리','시간표관리','시간표관리']);
+    if (!ok) resultEl.innerHTML = `<span style="color:#ef4444">시간표관리 페이지로 먼저 이동해주세요.</span>`;
   }
-
-  resultEl.innerHTML = `<span style="color:#ef4444">드롭다운에서 ${dateStr}을 찾지 못했습니다.</span>`;
 }
 
-function findGagangSelect() {
-  return Array.from(document.querySelectorAll('select')).find(sel =>
-    Array.from(sel.options).some(o => GAGANG_DATES.some(d => o.value.includes(d) || o.textContent.includes(d)))
-  ) || Array.from(document.querySelectorAll('select')).find(sel =>
-    /개강일|시작일/i.test(getLabelFor(sel) + sel.id + sel.name)
-  );
+function addDays(isoDate, days) {
+  const d = new Date(isoDate);
+  d.setDate(d.getDate() + days);
+  return toISO(d);
 }
 
 function overlayBizDayBadges(dateStr) {
@@ -302,43 +301,98 @@ function goToContactDB() {
 
 // 문의DB 페이지에서 필터 적용 + 조회
 function applyContactFilters(isoDate, mentor, resultEl) {
-  // ① 상담 예정일 날짜 입력
-  let filledDate = false;
-  document.querySelectorAll('input[type="date"]').forEach(inp => {
-    const lbl = getLabelFor(inp).replace(/\s/g,'');
-    if (/상담예정|컨택|예정|다음/i.test(lbl) || /contact|next/i.test(inp.name+inp.id)) {
-      setVal(inp, isoDate); filledDate = true;
-    }
-  });
-  // 날짜 필드 못 찾으면 첫 번째·두 번째 date input에 같은 날짜 세팅
-  if (!filledDate) {
+  // ① 검색 기준을 "결과메모"로 변경
+  switchSearchType('결과메모');
+
+  // ② Ant Design DatePicker에 날짜 입력 (시작일=종료일=isoDate)
+  const startInput = document.querySelector('input[date-range="start"]');
+  const endInput   = document.querySelector('input[date-range="end"]');
+  if (startInput && endInput) {
+    setAntDate(startInput, isoDate);
+    setTimeout(() => {
+      setAntDate(endInput, isoDate);
+      setTimeout(() => finishContactSearch(isoDate, mentor, resultEl), 400);
+    }, 300);
+  } else {
+    // fallback: 일반 date input
     const dates = Array.from(document.querySelectorAll('input[type="date"]'));
-    if (dates.length >= 2) { setVal(dates[0], isoDate); setVal(dates[1], isoDate); }
-    else if (dates.length === 1) { setVal(dates[0], isoDate); }
+    dates.forEach(inp => setVal(inp, isoDate));
+    setTimeout(() => finishContactSearch(isoDate, mentor, resultEl), 400);
+  }
+}
+
+// 검색 기준 드롭다운에서 특정 항목 선택 (문의자 → 결과메모 등)
+function switchSearchType(targetText) {
+  // Ant Design Select: 클릭으로 드롭다운 열고 항목 선택
+  const selectors = [
+    // select 태그 (일반)
+    ...Array.from(document.querySelectorAll('select')).filter(s =>
+      Array.from(s.options).some(o => o.textContent.includes('문의자') || o.textContent.includes('결과메모'))
+    ),
+  ];
+
+  // select 태그면 바로 변경
+  for (const sel of selectors) {
+    const opt = Array.from(sel.options).find(o => o.textContent.includes(targetText));
+    if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event('change',{bubbles:true})); return; }
   }
 
-  // ② 멘토 입력
+  // Ant Design Select (.ant-select) 처리
+  const antSelects = document.querySelectorAll('.ant-select');
+  for (const antSel of antSelects) {
+    const cur = antSel.querySelector('.ant-select-selection-item');
+    if (cur && /문의자|결과메모|검색기준/i.test(cur.textContent)) {
+      // 클릭으로 드롭다운 열기
+      antSel.click();
+      setTimeout(() => {
+        // 드롭다운 팝업에서 항목 찾기
+        const items = document.querySelectorAll('.ant-select-item-option-content');
+        const target = Array.from(items).find(el => el.textContent.includes(targetText));
+        if (target) target.click();
+      }, 200);
+      return;
+    }
+  }
+}
+
+// Ant Design DatePicker에 날짜 입력 (클릭 → 값 지정 → Enter)
+function setAntDate(input, isoDate) {
+  // 포맷: YYYY-MM-DD → YYYY-MM-DD (picker가 받는 그대로)
+  input.focus();
+  input.click();
+
+  // 기존 값 지우고 새 값 입력
+  const nativeSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
+  nativeSetter.set.call(input, isoDate);
+  input.dispatchEvent(new Event('input',  { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+
+  // Enter로 확정
+  input.dispatchEvent(new KeyboardEvent('keydown', { key:'Enter', keyCode:13, bubbles:true }));
+  input.dispatchEvent(new KeyboardEvent('keyup',   { key:'Enter', keyCode:13, bubbles:true }));
+  input.blur();
+}
+
+function finishContactSearch(isoDate, mentor, resultEl) {
+  // 멘토 텍스트 입력 (검색 기준이 멘토인 경우 또는 별도 멘토 필터가 있으면)
   if (mentor) {
-    document.querySelectorAll('input[type="text"]').forEach(inp => {
-      const lbl = getLabelFor(inp).replace(/\s/g,'');
-      if (/멘토|담당|mentor/i.test(lbl + inp.placeholder + inp.name)) {
-        setVal(inp, mentor);
-      }
-    });
+    // 검색어 input (Ant Design Input)
+    const searchInput = document.querySelector('.ant-input, input.ant-input, input[placeholder*="검색"], input[placeholder*="입력"]');
+    if (searchInput) setVal(searchInput, mentor);
   }
 
-  // ③ 조회 버튼 클릭
+  // 조회 버튼 클릭
   const qBtn = findBtn(['조회','검색']);
   if (qBtn) {
     qBtn.click();
-    resultEl.innerHTML = `🔄 ${formatDate(isoDate)} ${mentor ? `/ ${mentor}` : '전체'} 조회 중…`;
+    resultEl.innerHTML = `🔄 ${formatDate(isoDate)} ${mentor ? `"${mentor}"` : '전체'} 조회 중…`;
     setTimeout(() => {
       highlightContactRows(isoDate, mentor, resultEl);
       applyMyNameHighlight();
       chrome.storage.local.remove('pendingContact');
-    }, 1200);
+    }, 1500);
   } else {
-    resultEl.innerHTML = `<span style="color:#ef4444">조회 버튼을 찾지 못했습니다.<br>수동으로 조회 버튼을 눌러주세요.</span>`;
+    resultEl.innerHTML = `✅ 필터 적용됨 — 조회 버튼을 눌러주세요`;
   }
 }
 
