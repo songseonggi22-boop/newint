@@ -205,8 +205,11 @@ function applyFilters(isoDate, mentor, out) {
         // ⑤ 조회
         setTimeout(() => {
           const btn = findBtn(['조회','검색']);
-          if (btn) { btn.click(); out.textContent = `✅ ${isoToMD(isoDate)} 조회 완료`; }
-          else out.textContent = '✅ 필터 적용됨 — 조회 버튼을 눌러주세요';
+          if (!btn) { out.textContent = '✅ 필터 적용됨 — 조회 버튼을 눌러주세요'; return; }
+          btn.click();
+          out.textContent = '⏳ 조회 중…';
+          // ponytail: 셀렉트 변경 시 인트라넷이 자동 검색을 쏴서 결과가 덮어써짐 → 앞 요청이 끝난 뒤 한 번 더 조회
+          setTimeout(() => { btn.click(); out.textContent = `✅ ${isoToMD(isoDate)} 조회 완료`; }, STEP * 2);
         }, STEP);
       }, STEP);
     });
