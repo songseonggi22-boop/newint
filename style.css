@@ -30,9 +30,13 @@ table tbody tr:hover            { background-color: #e8f0fe !important; }
 .kih-badge-done       { background:#dcfce7; color:#14532d; }   /* 민트 - 상담완료 */
 .kih-badge-recontact  { background:#ffedd5; color:#9a3412; }   /* 주황 - 재컨택요망 */
 
-/* ── 내 담당자 행 강조 ── */
-tr.kih-my-row { background-color: #d1fae5 !important; font-weight: 600 !important; }
-tr.kih-my-row:hover { background-color: #a7f3d0 !important; }
+/* ── 재컨택요망 행 노란 배경 ── */
+tr.kih-row-recontact { background-color: #fef9c3 !important; }
+tr.kih-row-recontact:hover { background-color: #fef08a !important; }
+
+/* ── 내 담당자 행 강조 (수강생보기 포함 전체 테이블) ── */
+tr.kih-my-row { background-color: #bbf7d0 !important; font-weight: 700 !important; outline: 2px solid #22c55e; }
+tr.kih-my-row:hover { background-color: #86efac !important; }
 
 /* ── 컨택 매칭 행 ── */
 tr.kih-contact-match { background-color: #fef3c7 !important; font-weight: 600 !important; }

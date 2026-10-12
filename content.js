@@ -567,9 +567,21 @@ const STATUS_MAP = {
 function applyStatusBadges() {
   document.querySelectorAll('td').forEach(td => {
     const txt = td.textContent.trim();
+
+    // 완납 / COD → 굵은 폰트
+    if (txt === '완납' || txt === 'COD') {
+      td.style.fontWeight = '700';
+      return;
+    }
+
+    // 상태 뱃지
     const cls = STATUS_MAP[txt];
     if (cls && !td.querySelector('.kih-badge')) {
       td.innerHTML = `<span class="kih-badge ${cls}">${txt}</span>`;
+      // 재컨택요망이면 행 전체 노란 배경
+      if (txt === '재컨택요망') {
+        td.closest('tr')?.classList.add('kih-row-recontact');
+      }
     }
   });
 }
