@@ -145,3 +145,26 @@ table td, table th {
 .kih-result-row:hover {
   background: #f5f3ff;
 }
+
+/* 컨택 검색 팁 */
+#kih-panel-body .tip {
+  font-size: 11px;
+  color: #9ca3af;
+  line-height: 1.5;
+}
+
+/* 컨택 매칭 행 하이라이트 */
+tr[data-kih-match="1"] {
+  outline: 2px solid #f59e0b;
+}
+
+/* 초기화 버튼 */
+#kih-panel-reset {
+  padding: 6px 10px;
+  background: #6b7280;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
