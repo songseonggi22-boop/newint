@@ -482,7 +482,8 @@ async function collectRows(modal, re) {
   for (let k = 0; k < 30; k++) {
     modal.querySelectorAll('tr.k-master-row').forEach(tr => {
       rows++;
-      const mentor = cell(tr, '담당 멘토')?.textContent.trim() || '';
+      // 멘토 칸이 "송성기2 | 1-1팀" 형식 → "|" 앞 이름만
+      const mentor = (cell(tr, '담당 멘토')?.textContent || '').split('|')[0].trim();
       mentors.add(mentor || '(빈칸)');
       if (!re.test(mentor)) return;
       const name = cell(tr, '수강생')?.querySelectorAll('.b080108-link')[0]?.textContent.trim();
