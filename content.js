@@ -365,7 +365,8 @@ const stuDB = () => (window._kihSD ||= { me: '', classes: {} });
 const saveStuDB = () => chrome.storage.local.set({ stuMarks: stuDB() });
 const cntOf = ev => ev.querySelector('.sch-cnt')?.textContent.trim() || '0';
 // ponytail: "송성기"로 넣어도 "송성기2" 매칭
-const mentorRe = me => new RegExp('^' + me.replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*$');
+// 띄어쓰기 뺀 칸 글자 기준. "송성기(메인)"처럼 뒤에 괄호 붙어도 매칭, "송성기훈"은 제외
+const mentorRe = me => new RegExp('^' + me.replace(/\s/g, '').replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*(?![가-힣])');
 
 // full=false: 처음 보는 수업 + 배정인원이 바뀐 수업만 확인 / full=true: 전부 다시
 async function doMyStudents(full) {
@@ -389,6 +390,7 @@ async function doMyStudents(full) {
 
   _stuRun = true; btn.textContent = '⏹ 중지';
   const re = mentorRe(me);
+  let fail = 0;
   for (let i = 0; i < todo.length && _stuRun; i++) {
     const ev = todo[i];
     const title = ev.querySelector('.sch-title')?.textContent.trim() || '';
@@ -400,7 +402,8 @@ async function doMyStudents(full) {
       if (!pop) continue;
       Array.from(pop.querySelectorAll('button')).find(b => b.textContent.trim() === '수강생 보기')?.click();
       const modal = await waitFor(() => readyModal(title), 6000);
-      if (modal) saveClass(eventKey(ev), cntOf(ev), await collectRows(modal, re));
+      const names = modal && await collectRows(modal, re);
+      if (names) saveClass(eventKey(ev), cntOf(ev), names); else fail++;
       modal?.querySelector('.ant-modal-close')?.click();
       await waitFor(() => !openStuModal(), 2000);
       const p2 = openPopover();
@@ -411,7 +414,8 @@ async function doMyStudents(full) {
   const stopped = !_stuRun;
   _stuRun = false; btn.textContent = '👥 내 수강생 보기';
   const marked = Object.values(db.classes).filter(c => c.names.length);
-  out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — ${todo.length}개 수업 확인 · ${marked.length}개 수업에 ${marked.reduce((n, c) => n + c.names.length, 0)}명`;
+  out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — ${todo.length}개 수업 확인 · ${marked.length}개 수업에 ${marked.reduce((n, c) => n + c.names.length, 0)}명`
+    + (fail ? ` · ⚠️ ${fail}개 수업 목록 못 읽음 (F12 Console [KIH] 캡처해서 보내주세요)` : '');
   applyStuMarks();
 }
 
@@ -477,24 +481,32 @@ function saveClass(key, cnt, names) {
 
 // 수강생 창에서 담당 멘토가 나인 학생 이름 목록
 async function collectRows(modal, re) {
-  // 스피너가 사라져도 행이 아직 안 그려졌을 수 있음 → 빈 결과로 덮어쓰지 않게 null
-  if (!await waitFor(() => modal.querySelector('tr.k-master-row'), 4000)) return null;
-  const col = {}; // 헤더 제목 → 열 번호
-  modal.querySelectorAll('th[aria-colindex]').forEach(th => {
-    const t = th.querySelector('.k-column-title')?.textContent.trim();
-    if (t) col[t] = th.getAttribute('aria-colindex');
-  });
-  if (!col['담당 멘토'] || !col['수강생']) return null;
-  const cell = (tr, name) => tr.querySelector(`td[aria-colindex="${col[name]}"]`);
   const scroller = modal.querySelector('.k-grid-content');
+  const rows = () => Array.from((scroller || modal).querySelectorAll('tr')).filter(tr => tr.querySelector('td'));
+  // 스피너가 사라져도 행이 아직 안 그려졌을 수 있음 → 빈 결과로 덮어쓰지 않게 null
+  if (!await waitFor(() => rows().length, 4000)) { console.warn('[KIH] 수강생 행을 못 찾음', modal); return null; }
+  // 헤더 → 열 번호 (띄어쓰기 무시: "담당 멘토"/"담당멘토" 둘 다)
+  let mCol = null, sCol = null;
+  modal.querySelectorAll('th').forEach(th => {
+    const t = th.textContent.replace(/\s/g, '');
+    const i = th.getAttribute('aria-colindex') || String(th.cellIndex + 1);
+    if (t.includes('멘토')) mCol = i;
+    else if (t === '수강생' || t === '수강생명' || t === '이름') sCol = i;
+  });
+  const cell = (tr, i) => i && (tr.querySelector(`td[aria-colindex="${i}"]`) || tr.children[i - 1]);
+  const txt = el => (el?.textContent || '').replace(/\s/g, '');
   const names = new Set();
   // 가상 스크롤이라 화면에 보이는 행만 있음 → 끝까지 내리며 수집 후 맨 위로 복귀
   for (let k = 0; k < 30; k++) {
-    modal.querySelectorAll('tr.k-master-row').forEach(tr => {
-      if (!re.test(cell(tr, '담당 멘토')?.textContent.trim() || '')) return;
-      const name = cell(tr, '수강생')?.querySelector('.b080108-link')?.textContent.trim();
+    rows().forEach(tr => {
+      // 멘토 열을 못 찾으면 행의 아무 칸이나 내 이름과 일치하는지
+      const mine = mCol ? re.test(txt(cell(tr, mCol))) : Array.from(tr.cells).some(td => re.test(txt(td)));
+      if (!mine) return;
+      const sc = cell(tr, sCol) || tr.cells[0];
+      const name = (sc?.querySelector('.b080108-link, a')?.textContent || sc?.textContent || '').trim().split(/\s+/)[0];
       if (name) names.add(name);
     });
+    if (k === 0) console.log('[KIH] 수강생 읽기', { 행: rows().length, 멘토열: mCol, 수강생열: sCol, 첫행멘토: mCol && txt(cell(rows()[0], mCol)), 찾음: [...names] });
     if (!scroller || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) break;
     scroller.scrollTop += scroller.clientHeight;
     await sleep(300);
