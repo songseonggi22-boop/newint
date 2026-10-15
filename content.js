@@ -61,16 +61,6 @@ input[type=text], input[type=date], input[type=month] {
 .gg-btn.past { opacity: .5; }
 .chip { display: inline-block; margin: 2px; padding: 3px 9px; background: #f3f4f6; border-radius: 10px; font-size: 12px; }
 .bd-chip { display: inline-block; margin: 2px; background: #ede9fe; color: #4f46e5; padding: 1px 6px; border-radius: 8px; font-size: 10px; }
-#stu-box {
-  position: fixed; bottom: 84px; right: 356px; z-index: 9998; pointer-events: all;
-  width: 560px; max-height: calc(100vh - 120px); overflow: auto;
-  background: #fff; border: 1px solid #e5e7eb; border-radius: 14px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.15); padding: 12px 14px; font-size: 12px; color: #111;
-}
-#stu-box table { width: 100%; border-collapse: collapse; }
-#stu-box th, #stu-box td { padding: 5px 6px; border-bottom: 1px solid #f3f4f6; text-align: left; white-space: nowrap; }
-#stu-box th { background: #f9fafb; font-weight: 700; color: #374151; }
-#stu-box .x { float: right; background: none; border: none; font-size: 16px; cursor: pointer; color: #6b7280; }
 `;
 
 // ── 초기화 ───────────────────────────────────────────────────
@@ -381,10 +371,14 @@ async function doMyStudents() {
   // ponytail: "송성기"로 넣어도 "송성기2" 매칭
   const re = new RegExp('^' + me.replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*$');
   const found = [], seen = new Set();
+  window._kihStu = {}; // 수업키 → 내 학생 이름들
+  document.querySelectorAll('.__kihstu').forEach(el => el.remove());
 
   for (let i = 0; i < events.length && _stuRun; i++) {
     const ev = events[i];
     const title = ev.querySelector('.sch-title')?.textContent.trim() || '';
+    const evKey = eventKey(ev);
+    const before = found.length;
     out.textContent = `⏳ ${i + 1}/${events.length} ${title} … (찾음 ${found.length}명)`;
     try {
       ev.scrollIntoView({ block: 'center', inline: 'center' });
@@ -399,6 +393,8 @@ async function doMyStudents() {
         return m && subj.startsWith(title) && !m.querySelector('.ant-spin-spinning') ? m : null;
       }, 6000);
       if (modal) await collectRows(modal, re, title, found, seen);
+      const mine = found.slice(before).map(s => s.name);
+      if (mine.length) { window._kihStu[evKey] = mine; applyStuMarks(); }
       modal?.querySelector('.ant-modal-close')?.click();
       await waitFor(() => !openStuModal(), 2000);
       const p2 = openPopover();
@@ -408,8 +404,28 @@ async function doMyStudents() {
   }
   const stopped = !_stuRun;
   _stuRun = false; btn.textContent = '👥 내 수강생 보기';
-  out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — ${me} 담당 ${found.length}명`;
-  showStudents(me, found);
+  out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — ${Object.keys(window._kihStu).length}개 수업에 ${me} 담당 ${found.length}명 (시간표 칸에 표시)`;
+  applyStuMarks();
+}
+
+// 수업 칸 구분용 키: 과목|강의실|강사 + 개강일
+function eventKey(ev) {
+  return (ev.getAttribute('aria-label') || '') + '|' + (ev.querySelector('.sch-row .val')?.textContent.trim() || '');
+}
+
+// 시간표 각 수업 칸 맨 위에 "👤 내 학생 이름" 표시 (인트라넷 요소는 안 건드리고 추가만)
+function applyStuMarks() {
+  const map = window._kihStu;
+  if (!map || !Object.keys(map).length) return;
+  document.querySelectorAll('.rs-event').forEach(ev => {
+    const names = map[eventKey(ev)];
+    if (!names || ev.querySelector('.__kihstu')) return;
+    const tag = document.createElement('div');
+    tag.className = '__kihstu';
+    tag.textContent = `👤 ${names.join(', ')}`;
+    tag.style.cssText = 'margin:0 0 4px;padding:2px 6px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:normal;line-height:1.4;';
+    ev.prepend(tag);
+  });
 }
 
 async function collectRows(modal, re, title, found, seen) {
@@ -443,20 +459,6 @@ async function collectRows(modal, re, title, found, seen) {
     scroller.scrollTop += scroller.clientHeight;
     await sleep(300);
   }
-}
-
-function showStudents(me, list) {
-  S.getElementById('stu-box')?.remove();
-  const box = document.createElement('div');
-  box.id = 'stu-box';
-  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  box.innerHTML = `<button class="x" title="닫기">✕</button>
-    <b>👥 ${esc(me)} 담당 수강생 ${list.length}명</b>
-    <table style="margin-top:8px;"><thead><tr><th>과목</th><th>이름</th><th>번호</th><th>나이</th><th>상태</th><th>개강일</th></tr></thead>
-    <tbody>${list.map(s => `<tr><td>${esc(s.subj)}</td><td><b>${esc(s.name)}</b></td><td>${esc(s.no)}</td><td>${esc(s.age)}</td><td>${esc(s.status)}</td><td>${esc(s.start)}</td></tr>`).join('')
-      || '<tr><td colspan="6">배정된 수강생이 없습니다.</td></tr>'}</tbody></table>`;
-  box.querySelector('.x').addEventListener('click', () => box.remove());
-  S.appendChild(box);
 }
 
 // ── 내 이름 / 행 강조 ────────────────────────────────────────
@@ -524,7 +526,7 @@ let _t;
 function observe() {
   new MutationObserver(() => {
     clearTimeout(_t);
-    _t = setTimeout(() => { applyMyRow(); applyBadges(); }, 600); // 뱃지가 마지막 → 재컨택 노랑이 초록에 안 가려짐
+    _t = setTimeout(() => { applyMyRow(); applyBadges(); applyStuMarks(); }, 600); // 뱃지가 마지막 → 재컨택 노랑이 초록에 안 가려짐
   }).observe(document.body, { childList: true, subtree: true });
 }
 
