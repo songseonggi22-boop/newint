@@ -75,7 +75,8 @@ input[type=text], input[type=date], input[type=month] {
 
 // ── 초기화 ───────────────────────────────────────────────────
 let S = null; // Shadow root
-chrome.storage.local.get(['holidays','myName','pendingContact'], data => {
+// ponytail: 인트라넷 팝업창(?popup=1)은 패널·뱃지가 필요 없고 오류만 남김 → 아예 실행 안 함
+if (!/[?&]popup=1/.test(location.search)) chrome.storage.local.get(['holidays','myName','pendingContact'], data => {
   window._kihH  = data.holidays      || {};
   window._kihMe = data.myName        || '';
   window._kihPC = data.pendingContact || null;
