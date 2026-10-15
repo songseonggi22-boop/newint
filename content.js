@@ -350,6 +350,7 @@ function loadHol(ym) {
 // ── 내 수강생 보기 (시간표 수업마다 수강생 팝업을 열어 담당 멘토 확인) ──
 // ponytail: 인트라넷 API를 모르니 사람이 하는 클릭을 그대로 반복. 수업 1개당 약 2~3초
 let _stuRun = false;
+let _dbg = ''; // 0명일 때 패널에 띄울 첫 실패 원인
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function waitFor(fn, ms = 5000) {
   for (let t = 0; t < ms; t += 150) { const v = fn(); if (v) return v; await sleep(150); }
@@ -390,6 +391,7 @@ async function doMyStudents(full) {
   _stuRun = true; btn.textContent = '⏹ 중지';
   const re = mentorRe(me);
   let fail = 0;
+  _dbg = '';
   for (let i = 0; i < todo.length && _stuRun; i++) {
     const ev = todo[i];
     const title = ev.querySelector('.sch-title')?.textContent.trim() || '';
@@ -398,9 +400,13 @@ async function doMyStudents(full) {
       ev.scrollIntoView({ block: 'center', inline: 'center' });
       ev.click();
       const pop = await waitFor(openPopover, 3000);
-      if (!pop) continue;
+      if (!pop) { _dbg ||= `수업 눌러도 팝업 안 뜸 ("${title}")`; fail++; continue; }
       Array.from(pop.querySelectorAll('button')).find(b => b.textContent.trim() === '수강생 보기')?.click();
       const modal = await waitFor(() => readyModal(title), 6000);
+      if (!modal) {
+        const m = openStuModal();
+        _dbg ||= m ? `창 과목명 불일치: 창="${(m.querySelector('.HybridTable td')?.textContent || '').slice(0, 25)}" / 칸="${title}"` : '수강생 창을 못 찾음';
+      }
       const names = modal && await collectRows(modal, re);
       if (names) saveClass(eventKey(ev), cntOf(ev), names); else fail++;
       modal?.querySelector('.ant-modal-close')?.click();
@@ -414,7 +420,9 @@ async function doMyStudents(full) {
   _stuRun = false; btn.textContent = '👥 내 수강생 보기';
   const marked = Object.values(db.classes).filter(c => c.names.length);
   out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — ${todo.length}개 수업 확인 · ${marked.length}개 수업에 ${marked.reduce((n, c) => n + c.names.length, 0)}명`
-    + (fail ? ` · ⚠️ ${fail}개 수업 목록 못 읽음 (F12 Console [KIH] 캡처해서 보내주세요)` : '');
+    + (fail ? ` · ⚠️ ${fail}개 수업 못 읽음` : '')
+    + (!marked.length && _dbg ? ` · 🔎 진단: ${_dbg} · 담당자칸="${me}"` : '');
+  if (_dbg) console.log('[KIH] 진단:', _dbg, '담당자:', me);
   applyStuMarks();
 }
 
@@ -468,13 +476,15 @@ async function collectRows(modal, re) {
   });
   const cell = (tr, name) => tr.querySelector(`td[aria-colindex="${col[name]}"]`);
   const scroller = modal.querySelector('.k-grid-content');
-  const names = new Set();
+  const names = new Set(), mentors = new Set();
   let rows = 0;
   // 가상 스크롤이라 화면에 보이는 행만 있음 → 끝까지 내리며 수집
   for (let k = 0; k < 30; k++) {
     modal.querySelectorAll('tr.k-master-row').forEach(tr => {
       rows++;
-      if (!re.test(cell(tr, '담당 멘토')?.textContent.trim() || '')) return;
+      const mentor = cell(tr, '담당 멘토')?.textContent.trim() || '';
+      mentors.add(mentor || '(빈칸)');
+      if (!re.test(mentor)) return;
       const name = cell(tr, '수강생')?.querySelectorAll('.b080108-link')[0]?.textContent.trim();
       if (name) names.add(name);
     });
@@ -482,7 +492,11 @@ async function collectRows(modal, re) {
     scroller.scrollTop += scroller.clientHeight;
     await sleep(300);
   }
-  if (!rows) { console.warn('[KIH] 수강생 목록 행 0개', modal); return null; } // 0명으로 저장하지 않음
+  if (!rows) { // 0명으로 저장하지 않음
+    _dbg ||= `수강생 창은 열렸는데 목록 줄 0개 (표 칸: ${Object.keys(col).join(',') || '없음'})`;
+    return null;
+  }
+  if (!names.size) _dbg ||= `목록 ${rows}줄 · 담당 멘토 칸 값 예: ${[...mentors].slice(0, 4).join(', ')} · 표 칸: ${Object.keys(col).join(',')}`;
   return [...names];
 }
 
