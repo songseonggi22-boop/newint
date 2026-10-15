@@ -365,8 +365,7 @@ const stuDB = () => (window._kihSD ||= { me: '', classes: {} });
 const saveStuDB = () => chrome.storage.local.set({ stuMarks: stuDB() });
 const cntOf = ev => ev.querySelector('.sch-cnt')?.textContent.trim() || '0';
 // ponytail: "송성기"로 넣어도 "송성기2" 매칭
-// 띄어쓰기 뺀 칸 글자 기준. "송성기(메인)"처럼 뒤에 괄호 붙어도 매칭, "송성기훈"은 제외
-const mentorRe = me => new RegExp('^' + me.replace(/\s/g, '').replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*(?![가-힣])');
+const mentorRe = me => new RegExp('^' + me.replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*$');
 
 // full=false: 처음 보는 수업 + 배정인원이 바뀐 수업만 확인 / full=true: 전부 다시
 async function doMyStudents(full) {
@@ -451,67 +450,39 @@ function applyStuMarks() {
   });
 }
 
-// 내가 직접 수업을 눌러 "수강생 보기"를 열어도 그 수업 표시를 자동 갱신
-let _lastEv = null, _passKey = null;
-document.addEventListener('click', e => { const ev = e.target.closest?.('.rs-event'); if (ev) _lastEv = ev; }, true);
-function passiveUpdate() {
-  if (_stuRun || !_lastEv || !window._kihSD?.me) return;
-  if (!openStuModal()) { _passKey = null; return; }
-  const key = eventKey(_lastEv);
-  if (_passKey === key) return;
-  const title = _lastEv.querySelector('.sch-title')?.textContent.trim() || '';
-  const modal = readyModal(title);
-  if (!modal) return;
-  _passKey = key;
-  const cnt = cntOf(_lastEv);
-  collectRows(modal, mentorRe(window._kihSD.me)).then(names => {
-    if (!names) _passKey = null; // 목록 못 읽음 → 다음에 다시 시도
-    saveClass(key, cnt, names);
-  });
-}
-
 // 한 번 확인된 학생은 지우지 않고 합쳐서 저장 (빼려면 "↻ 전체")
 // ponytail: 수강 취소된 학생도 남음 — "↻ 전체"가 초기화 경로
 function saveClass(key, cnt, names) {
-  if (!names) return; // 목록 로딩 전이면 기존 표시 유지
+  if (!names) return; // 목록을 못 읽었으면 기존 표시 유지
   const old = stuDB().classes[key]?.names || [];
   stuDB().classes[key] = { cnt, names: [...new Set([...old, ...names])] };
   saveStuDB(); applyStuMarks();
 }
 
-// 수강생 창에서 담당 멘토가 나인 학생 이름 목록
+// 수강생 창에서 담당 멘토가 나인 학생 이름 목록 (처음에 잘 되던 읽기 방식 그대로)
 async function collectRows(modal, re) {
-  const scroller = modal.querySelector('.k-grid-content');
-  const rows = () => Array.from((scroller || modal).querySelectorAll('tr')).filter(tr => tr.querySelector('td'));
-  // 스피너가 사라져도 행이 아직 안 그려졌을 수 있음 → 빈 결과로 덮어쓰지 않게 null
-  if (!await waitFor(() => rows().length, 4000)) { console.warn('[KIH] 수강생 행을 못 찾음', modal); return null; }
-  // 헤더 → 열 번호 (띄어쓰기 무시: "담당 멘토"/"담당멘토" 둘 다)
-  let mCol = null, sCol = null;
-  modal.querySelectorAll('th').forEach(th => {
-    const t = th.textContent.replace(/\s/g, '');
-    const i = th.getAttribute('aria-colindex') || String(th.cellIndex + 1);
-    if (t.includes('멘토')) mCol = i;
-    else if (t === '수강생' || t === '수강생명' || t === '이름') sCol = i;
+  const col = {}; // 헤더 제목 → 열 번호
+  modal.querySelectorAll('th[aria-colindex]').forEach(th => {
+    const t = th.querySelector('.k-column-title')?.textContent.trim();
+    if (t) col[t] = th.getAttribute('aria-colindex');
   });
-  const cell = (tr, i) => i && (tr.querySelector(`td[aria-colindex="${i}"]`) || tr.children[i - 1]);
-  const txt = el => (el?.textContent || '').replace(/\s/g, '');
+  const cell = (tr, name) => tr.querySelector(`td[aria-colindex="${col[name]}"]`);
+  const scroller = modal.querySelector('.k-grid-content');
   const names = new Set();
-  // 가상 스크롤이라 화면에 보이는 행만 있음 → 끝까지 내리며 수집 후 맨 위로 복귀
+  let rows = 0;
+  // 가상 스크롤이라 화면에 보이는 행만 있음 → 끝까지 내리며 수집
   for (let k = 0; k < 30; k++) {
-    rows().forEach(tr => {
-      // 멘토 열을 못 찾으면 행의 아무 칸이나 내 이름과 일치하는지
-      const mine = mCol ? re.test(txt(cell(tr, mCol))) : Array.from(tr.cells).some(td => re.test(txt(td)));
-      if (!mine) return;
-      const sc = cell(tr, sCol) || tr.cells[0];
-      const name = (sc?.querySelector('.b080108-link, a')?.textContent || sc?.textContent || '').trim().split(/\s+/)[0];
+    modal.querySelectorAll('tr.k-master-row').forEach(tr => {
+      rows++;
+      if (!re.test(cell(tr, '담당 멘토')?.textContent.trim() || '')) return;
+      const name = cell(tr, '수강생')?.querySelectorAll('.b080108-link')[0]?.textContent.trim();
       if (name) names.add(name);
     });
-    if (k === 0) console.log('[KIH] 수강생 읽기', { 행: rows().length, 멘토열: mCol, 수강생열: sCol, 첫행멘토: mCol && txt(cell(rows()[0], mCol)), 찾음: [...names] });
     if (!scroller || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) break;
     scroller.scrollTop += scroller.clientHeight;
     await sleep(300);
   }
-  if (scroller) scroller.scrollTop = 0;
+  if (!rows) { console.warn('[KIH] 수강생 목록 행 0개', modal); return null; } // 0명으로 저장하지 않음
   return [...names];
 }
 
@@ -580,7 +551,7 @@ let _t;
 function observe() {
   new MutationObserver(() => {
     clearTimeout(_t);
-    _t = setTimeout(() => { applyMyRow(); applyBadges(); applyStuMarks(); passiveUpdate(); }, 600); // 뱃지가 마지막 → 재컨택 노랑이 초록에 안 가려짐
+    _t = setTimeout(() => { applyMyRow(); applyBadges(); applyStuMarks(); }, 600); // 뱃지가 마지막 → 재컨택 노랑이 초록에 안 가려짐
   }).observe(document.body, { childList: true, subtree: true });
 }
 
