@@ -400,10 +400,7 @@ async function doMyStudents(full) {
       if (!pop) continue;
       Array.from(pop.querySelectorAll('button')).find(b => b.textContent.trim() === '수강생 보기')?.click();
       const modal = await waitFor(() => readyModal(title), 6000);
-      if (modal) {
-        db.classes[eventKey(ev)] = { cnt: cntOf(ev), names: await collectRows(modal, re) };
-        saveStuDB(); applyStuMarks();
-      }
+      if (modal) saveClass(eventKey(ev), cntOf(ev), await collectRows(modal, re));
       modal?.querySelector('.ant-modal-close')?.click();
       await waitFor(() => !openStuModal(), 2000);
       const p2 = openPopover();
@@ -464,18 +461,30 @@ function passiveUpdate() {
   _passKey = key;
   const cnt = cntOf(_lastEv);
   collectRows(modal, mentorRe(window._kihSD.me)).then(names => {
-    window._kihSD.classes[key] = { cnt, names };
-    saveStuDB(); applyStuMarks();
+    if (!names) _passKey = null; // 목록 못 읽음 → 다음에 다시 시도
+    saveClass(key, cnt, names);
   });
+}
+
+// 한 번 확인된 학생은 지우지 않고 합쳐서 저장 (빼려면 "↻ 전체")
+// ponytail: 수강 취소된 학생도 남음 — "↻ 전체"가 초기화 경로
+function saveClass(key, cnt, names) {
+  if (!names) return; // 목록 로딩 전이면 기존 표시 유지
+  const old = stuDB().classes[key]?.names || [];
+  stuDB().classes[key] = { cnt, names: [...new Set([...old, ...names])] };
+  saveStuDB(); applyStuMarks();
 }
 
 // 수강생 창에서 담당 멘토가 나인 학생 이름 목록
 async function collectRows(modal, re) {
+  // 스피너가 사라져도 행이 아직 안 그려졌을 수 있음 → 빈 결과로 덮어쓰지 않게 null
+  if (!await waitFor(() => modal.querySelector('tr.k-master-row'), 4000)) return null;
   const col = {}; // 헤더 제목 → 열 번호
   modal.querySelectorAll('th[aria-colindex]').forEach(th => {
     const t = th.querySelector('.k-column-title')?.textContent.trim();
     if (t) col[t] = th.getAttribute('aria-colindex');
   });
+  if (!col['담당 멘토'] || !col['수강생']) return null;
   const cell = (tr, name) => tr.querySelector(`td[aria-colindex="${col[name]}"]`);
   const scroller = modal.querySelector('.k-grid-content');
   const names = new Set();
