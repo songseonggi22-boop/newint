@@ -61,6 +61,16 @@ input[type=text], input[type=date], input[type=month] {
 .gg-btn.past { opacity: .5; }
 .chip { display: inline-block; margin: 2px; padding: 3px 9px; background: #f3f4f6; border-radius: 10px; font-size: 12px; }
 .bd-chip { display: inline-block; margin: 2px; background: #ede9fe; color: #4f46e5; padding: 1px 6px; border-radius: 8px; font-size: 10px; }
+#stu-box {
+  position: fixed; bottom: 84px; right: 356px; z-index: 9998; pointer-events: all;
+  width: 560px; max-height: calc(100vh - 120px); overflow: auto;
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.15); padding: 12px 14px; font-size: 12px; color: #111;
+}
+#stu-box table { width: 100%; border-collapse: collapse; }
+#stu-box th, #stu-box td { padding: 5px 6px; border-bottom: 1px solid #f3f4f6; text-align: left; white-space: nowrap; }
+#stu-box th { background: #f9fafb; font-weight: 700; color: #374151; }
+#stu-box .x { float: right; background: none; border: none; font-size: 16px; cursor: pointer; color: #6b7280; }
 `;
 
 // ── 초기화 ───────────────────────────────────────────────────
@@ -127,6 +137,13 @@ function buildPanel() {
         </div>
         <div id="r-schedule" class="result"></div>
         <div id="biz-list"></div>
+        <div class="sep"></div>
+        <label>담당자 <span class="hint">(화면에 보이는 수업 전체 확인)</span></label>
+        <div class="row">
+          <input id="i-mystu" type="text" placeholder="예: 송성기2" value="${window._kihMe}"/>
+          <button class="sm g" id="btn-mystu">👥 내 수강생 보기</button>
+        </div>
+        <div id="r-mystu" class="result"></div>
       </div>
       <div id="pane-settings" class="pane">
         <label>내 이름 <span class="hint">(내 담당 행 굵게)</span></label>
@@ -156,6 +173,7 @@ function buildPanel() {
   S.getElementById('btn-all').addEventListener('click', () => toggleCB(true));
   S.getElementById('btn-none').addEventListener('click', () => toggleCB(false));
   S.getElementById('btn-save').addEventListener('click', saveName);
+  S.getElementById('btn-mystu').addEventListener('click', doMyStudents);
   S.getElementById('i-ym').addEventListener('change', e => loadHol(e.target.value));
 
   loadHol(nowYM);
@@ -333,6 +351,111 @@ function toggleCB(v) {
 function loadHol(ym) {
   const el = S?.getElementById('i-hol');
   if (el) el.value = (window._kihH[ym] || []).join(',');
+}
+
+// ── 내 수강생 보기 (시간표 수업마다 수강생 팝업을 열어 담당 멘토 확인) ──
+// ponytail: 인트라넷 API를 모르니 사람이 하는 클릭을 그대로 반복. 수업 1개당 약 2~3초
+let _stuRun = false;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function waitFor(fn, ms = 5000) {
+  for (let t = 0; t < ms; t += 150) { const v = fn(); if (v) return v; await sleep(150); }
+  return null;
+}
+const openPopover = () => Array.from(document.querySelectorAll('.ant-popover:not(.ant-popover-hidden)'))
+  .find(p => p.textContent.includes('수강생 보기'));
+const openStuModal = () => Array.from(document.querySelectorAll('.ant-modal-wrap'))
+  .find(w => w.style.display !== 'none' && w.querySelector('.ant-modal-title')?.textContent.trim() === '수강생');
+
+async function doMyStudents() {
+  const btn = S.getElementById('btn-mystu');
+  const out = S.getElementById('r-mystu');
+  if (_stuRun) { _stuRun = false; btn.textContent = '👥 내 수강생 보기'; return; } // 다시 누르면 중지
+  const me = S.getElementById('i-mystu').value.trim();
+  if (!me) { out.textContent = '담당자 이름을 입력해주세요.'; return; }
+  const events = Array.from(document.querySelectorAll('.rs-event'))
+    .filter(ev => (ev.querySelector('.sch-cnt')?.textContent.trim() || '0') !== '0'); // 배정 0명은 건너뜀
+  if (!events.length) { out.textContent = '시간표관리 화면에서 실행해주세요.'; return; }
+
+  _stuRun = true; btn.textContent = '⏹ 중지';
+  // ponytail: "송성기"로 넣어도 "송성기2" 매칭
+  const re = new RegExp('^' + me.replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*$');
+  const found = [], seen = new Set();
+
+  for (let i = 0; i < events.length && _stuRun; i++) {
+    const ev = events[i];
+    const title = ev.querySelector('.sch-title')?.textContent.trim() || '';
+    out.textContent = `⏳ ${i + 1}/${events.length} ${title} … (찾음 ${found.length}명)`;
+    try {
+      ev.scrollIntoView({ block: 'center', inline: 'center' });
+      ev.click();
+      const pop = await waitFor(openPopover, 3000);
+      if (!pop) continue;
+      Array.from(pop.querySelectorAll('button')).find(b => b.textContent.trim() === '수강생 보기')?.click();
+      const modal = await waitFor(() => {
+        const m = openStuModal();
+        // 이전 수업 데이터가 남아있지 않은지 과목명으로 확인 + 로딩 끝날 때까지
+        const subj = m?.querySelector('.HybridTable td')?.textContent || '';
+        return m && subj.startsWith(title) && !m.querySelector('.ant-spin-spinning') ? m : null;
+      }, 6000);
+      if (modal) await collectRows(modal, re, title, found, seen);
+      modal?.querySelector('.ant-modal-close')?.click();
+      await waitFor(() => !openStuModal(), 2000);
+      const p2 = openPopover();
+      if (p2) Array.from(p2.querySelectorAll('button')).find(b => b.textContent.trim() === '확인')?.click();
+      await sleep(250);
+    } catch (e) { console.warn('[KIH] 수강생 확인 실패:', title, e); }
+  }
+  const stopped = !_stuRun;
+  _stuRun = false; btn.textContent = '👥 내 수강생 보기';
+  out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — ${me} 담당 ${found.length}명`;
+  showStudents(me, found);
+}
+
+async function collectRows(modal, re, title, found, seen) {
+  // 헤더 제목 → 열 번호
+  const col = {};
+  modal.querySelectorAll('th[aria-colindex]').forEach(th => {
+    const t = th.querySelector('.k-column-title')?.textContent.trim();
+    if (t) col[t] = th.getAttribute('aria-colindex');
+  });
+  const cell = (tr, name) => tr.querySelector(`td[aria-colindex="${col[name]}"]`);
+  const scroller = modal.querySelector('.k-grid-content');
+  // 가상 스크롤이라 화면에 보이는 행만 있음 → 끝까지 내리며 수집
+  for (let k = 0; k < 30; k++) {
+    modal.querySelectorAll('tr.k-master-row').forEach(tr => {
+      const mentor = cell(tr, '담당 멘토')?.textContent.trim() || '';
+      if (!re.test(mentor)) return;
+      const links = cell(tr, '수강생')?.querySelectorAll('.b080108-link') || [];
+      const name = links[0]?.textContent.trim() || '';
+      const no = links[1]?.textContent.trim() || '';
+      const key = [title, no, name, cell(tr, '개강일')?.textContent.trim()].join('|');
+      if (seen.has(key)) return;
+      seen.add(key);
+      found.push({
+        subj: cell(tr, '배정 과목')?.textContent.trim() || title, name, no,
+        age: cell(tr, '나이')?.textContent.trim() || '',
+        status: cell(tr, '수강상태')?.textContent.trim() || '',
+        start: cell(tr, '개강일')?.textContent.trim() || '', mentor,
+      });
+    });
+    if (!scroller || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) break;
+    scroller.scrollTop += scroller.clientHeight;
+    await sleep(300);
+  }
+}
+
+function showStudents(me, list) {
+  S.getElementById('stu-box')?.remove();
+  const box = document.createElement('div');
+  box.id = 'stu-box';
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  box.innerHTML = `<button class="x" title="닫기">✕</button>
+    <b>👥 ${esc(me)} 담당 수강생 ${list.length}명</b>
+    <table style="margin-top:8px;"><thead><tr><th>과목</th><th>이름</th><th>번호</th><th>나이</th><th>상태</th><th>개강일</th></tr></thead>
+    <tbody>${list.map(s => `<tr><td>${esc(s.subj)}</td><td><b>${esc(s.name)}</b></td><td>${esc(s.no)}</td><td>${esc(s.age)}</td><td>${esc(s.status)}</td><td>${esc(s.start)}</td></tr>`).join('')
+      || '<tr><td colspan="6">배정된 수강생이 없습니다.</td></tr>'}</tbody></table>`;
+  box.querySelector('.x').addEventListener('click', () => box.remove());
+  S.appendChild(box);
 }
 
 // ── 내 이름 / 행 강조 ────────────────────────────────────────
