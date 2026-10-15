@@ -66,7 +66,8 @@ input[type=text], input[type=date], input[type=month] {
 // ── 초기화 ───────────────────────────────────────────────────
 let S = null; // Shadow root
 // ponytail: 인트라넷 팝업창(?popup=1)은 패널·뱃지가 필요 없고 오류만 남김 → 아예 실행 안 함
-if (!/[?&]popup=1/.test(location.search)) chrome.storage.local.get(['holidays','myName','pendingContact'], data => {
+if (!/[?&]popup=1/.test(location.search)) chrome.storage.local.get(['holidays','myName','pendingContact','stuMarks'], data => {
+  window._kihSD = data.stuMarks      || null; // 저장된 내 수강생 표시
   window._kihH  = data.holidays      || {};
   window._kihMe = data.myName        || '';
   window._kihPC = data.pendingContact || null;
@@ -129,10 +130,11 @@ function buildPanel() {
         <div id="r-schedule" class="result"></div>
         <div id="biz-list"></div>
         <div class="sep"></div>
-        <label>담당자 <span class="hint">(화면에 보이는 수업 전체 확인)</span></label>
+        <label>담당자 <span class="hint">(새 수업·인원 바뀐 수업만 확인)</span></label>
         <div class="row">
           <input id="i-mystu" type="text" placeholder="예: 송성기2" value="${window._kihMe}"/>
           <button class="sm g" id="btn-mystu">👥 내 수강생 보기</button>
+          <button class="sm" id="btn-mystu-all" title="저장된 표시를 지우고 전부 다시 확인">↻ 전체</button>
         </div>
         <div id="r-mystu" class="result"></div>
       </div>
@@ -164,7 +166,8 @@ function buildPanel() {
   S.getElementById('btn-all').addEventListener('click', () => toggleCB(true));
   S.getElementById('btn-none').addEventListener('click', () => toggleCB(false));
   S.getElementById('btn-save').addEventListener('click', saveName);
-  S.getElementById('btn-mystu').addEventListener('click', doMyStudents);
+  S.getElementById('btn-mystu').addEventListener('click', () => doMyStudents(false));
+  S.getElementById('btn-mystu-all').addEventListener('click', () => doMyStudents(true));
   S.getElementById('i-ym').addEventListener('change', e => loadHol(e.target.value));
 
   loadHol(nowYM);
@@ -357,44 +360,50 @@ const openPopover = () => Array.from(document.querySelectorAll('.ant-popover:not
 const openStuModal = () => Array.from(document.querySelectorAll('.ant-modal-wrap'))
   .find(w => w.style.display !== 'none' && w.querySelector('.ant-modal-title')?.textContent.trim() === '수강생');
 
-async function doMyStudents() {
+// 저장 구조: { me, classes: { 수업키: { cnt: 배정인원, names: [내 학생] } } } → chrome.storage 'stuMarks'
+const stuDB = () => (window._kihSD ||= { me: '', classes: {} });
+const saveStuDB = () => chrome.storage.local.set({ stuMarks: stuDB() });
+const cntOf = ev => ev.querySelector('.sch-cnt')?.textContent.trim() || '0';
+// ponytail: "송성기"로 넣어도 "송성기2" 매칭
+const mentorRe = me => new RegExp('^' + me.replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*$');
+
+// full=false: 처음 보는 수업 + 배정인원이 바뀐 수업만 확인 / full=true: 전부 다시
+async function doMyStudents(full) {
   const btn = S.getElementById('btn-mystu');
   const out = S.getElementById('r-mystu');
-  if (_stuRun) { _stuRun = false; btn.textContent = '👥 내 수강생 보기'; return; } // 다시 누르면 중지
+  if (_stuRun) { _stuRun = false; return; } // 진행 중에 다시 누르면 중지
   const me = S.getElementById('i-mystu').value.trim();
   if (!me) { out.textContent = '담당자 이름을 입력해주세요.'; return; }
-  const events = Array.from(document.querySelectorAll('.rs-event'))
-    .filter(ev => (ev.querySelector('.sch-cnt')?.textContent.trim() || '0') !== '0'); // 배정 0명은 건너뜀
-  if (!events.length) { out.textContent = '시간표관리 화면에서 실행해주세요.'; return; }
+  const all = Array.from(document.querySelectorAll('.rs-event'));
+  if (!all.length) { out.textContent = '시간표관리 화면에서 실행해주세요.'; return; }
+
+  const db = stuDB();
+  if (full || db.me !== me) { db.me = me; db.classes = {}; }
+  const todo = all.filter(ev => {
+    const key = eventKey(ev), cnt = cntOf(ev);
+    if (cnt === '0') { db.classes[key] = { cnt, names: [] }; return false; } // 배정 0명은 열 필요 없음
+    return db.classes[key]?.cnt !== cnt;
+  });
+  saveStuDB();
+  if (!todo.length) { applyStuMarks(); out.textContent = '✅ 바뀐 수업 없음 — 저장된 표시 그대로'; return; }
 
   _stuRun = true; btn.textContent = '⏹ 중지';
-  // ponytail: "송성기"로 넣어도 "송성기2" 매칭
-  const re = new RegExp('^' + me.replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*$');
-  const found = [], seen = new Set();
-  window._kihStu = {}; // 수업키 → 내 학생 이름들
-  document.querySelectorAll('.__kihstu').forEach(el => el.remove());
-
-  for (let i = 0; i < events.length && _stuRun; i++) {
-    const ev = events[i];
+  const re = mentorRe(me);
+  for (let i = 0; i < todo.length && _stuRun; i++) {
+    const ev = todo[i];
     const title = ev.querySelector('.sch-title')?.textContent.trim() || '';
-    const evKey = eventKey(ev);
-    const before = found.length;
-    out.textContent = `⏳ ${i + 1}/${events.length} ${title} … (찾음 ${found.length}명)`;
+    out.textContent = `⏳ ${i + 1}/${todo.length} ${title} …`;
     try {
       ev.scrollIntoView({ block: 'center', inline: 'center' });
       ev.click();
       const pop = await waitFor(openPopover, 3000);
       if (!pop) continue;
       Array.from(pop.querySelectorAll('button')).find(b => b.textContent.trim() === '수강생 보기')?.click();
-      const modal = await waitFor(() => {
-        const m = openStuModal();
-        // 이전 수업 데이터가 남아있지 않은지 과목명으로 확인 + 로딩 끝날 때까지
-        const subj = m?.querySelector('.HybridTable td')?.textContent || '';
-        return m && subj.startsWith(title) && !m.querySelector('.ant-spin-spinning') ? m : null;
-      }, 6000);
-      if (modal) await collectRows(modal, re, title, found, seen);
-      const mine = found.slice(before).map(s => s.name);
-      if (mine.length) { window._kihStu[evKey] = mine; applyStuMarks(); }
+      const modal = await waitFor(() => readyModal(title), 6000);
+      if (modal) {
+        db.classes[eventKey(ev)] = { cnt: cntOf(ev), names: await collectRows(modal, re) };
+        saveStuDB(); applyStuMarks();
+      }
       modal?.querySelector('.ant-modal-close')?.click();
       await waitFor(() => !openStuModal(), 2000);
       const p2 = openPopover();
@@ -404,8 +413,16 @@ async function doMyStudents() {
   }
   const stopped = !_stuRun;
   _stuRun = false; btn.textContent = '👥 내 수강생 보기';
-  out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — ${Object.keys(window._kihStu).length}개 수업에 ${me} 담당 ${found.length}명 (시간표 칸에 표시)`;
+  const marked = Object.values(db.classes).filter(c => c.names.length);
+  out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — ${todo.length}개 수업 확인 · ${marked.length}개 수업에 ${marked.reduce((n, c) => n + c.names.length, 0)}명`;
   applyStuMarks();
+}
+
+// 열린 수강생 창이 해당 수업 것이고 로딩이 끝났으면 반환
+function readyModal(title) {
+  const m = openStuModal();
+  const subj = m?.querySelector('.HybridTable td')?.textContent || '';
+  return m && subj.startsWith(title) && !m.querySelector('.ant-spin-spinning') ? m : null;
 }
 
 // 수업 칸 구분용 키: 과목|강의실|강사 + 개강일
@@ -415,50 +432,66 @@ function eventKey(ev) {
 
 // 시간표 각 수업 칸 맨 위에 "👤 내 학생 이름" 표시 (인트라넷 요소는 안 건드리고 추가만)
 function applyStuMarks() {
-  const map = window._kihStu;
-  if (!map || !Object.keys(map).length) return;
+  const classes = window._kihSD?.classes;
+  if (!classes) return;
   document.querySelectorAll('.rs-event').forEach(ev => {
-    const names = map[eventKey(ev)];
-    if (!names || ev.querySelector('.__kihstu')) return;
-    const tag = document.createElement('div');
-    tag.className = '__kihstu';
-    tag.textContent = `👤 ${names.join(', ')}`;
-    tag.style.cssText = 'margin:0 0 4px;padding:2px 6px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:normal;line-height:1.4;';
-    ev.prepend(tag);
+    const names = classes[eventKey(ev)]?.names || [];
+    let tag = ev.querySelector('.__kihstu');
+    const text = names.length ? `👤 ${names.join(', ')}` : '';
+    if (!text) { tag?.remove(); return; }
+    if (tag?.textContent === text) return;
+    if (!tag) {
+      tag = document.createElement('div');
+      tag.className = '__kihstu';
+      tag.style.cssText = 'margin:0 0 4px;padding:2px 6px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:normal;line-height:1.4;';
+      ev.prepend(tag);
+    }
+    tag.textContent = text;
   });
 }
 
-async function collectRows(modal, re, title, found, seen) {
-  // 헤더 제목 → 열 번호
-  const col = {};
+// 내가 직접 수업을 눌러 "수강생 보기"를 열어도 그 수업 표시를 자동 갱신
+let _lastEv = null, _passKey = null;
+document.addEventListener('click', e => { const ev = e.target.closest?.('.rs-event'); if (ev) _lastEv = ev; }, true);
+function passiveUpdate() {
+  if (_stuRun || !_lastEv || !window._kihSD?.me) return;
+  if (!openStuModal()) { _passKey = null; return; }
+  const key = eventKey(_lastEv);
+  if (_passKey === key) return;
+  const title = _lastEv.querySelector('.sch-title')?.textContent.trim() || '';
+  const modal = readyModal(title);
+  if (!modal) return;
+  _passKey = key;
+  const cnt = cntOf(_lastEv);
+  collectRows(modal, mentorRe(window._kihSD.me)).then(names => {
+    window._kihSD.classes[key] = { cnt, names };
+    saveStuDB(); applyStuMarks();
+  });
+}
+
+// 수강생 창에서 담당 멘토가 나인 학생 이름 목록
+async function collectRows(modal, re) {
+  const col = {}; // 헤더 제목 → 열 번호
   modal.querySelectorAll('th[aria-colindex]').forEach(th => {
     const t = th.querySelector('.k-column-title')?.textContent.trim();
     if (t) col[t] = th.getAttribute('aria-colindex');
   });
   const cell = (tr, name) => tr.querySelector(`td[aria-colindex="${col[name]}"]`);
   const scroller = modal.querySelector('.k-grid-content');
-  // 가상 스크롤이라 화면에 보이는 행만 있음 → 끝까지 내리며 수집
+  const names = new Set();
+  // 가상 스크롤이라 화면에 보이는 행만 있음 → 끝까지 내리며 수집 후 맨 위로 복귀
   for (let k = 0; k < 30; k++) {
     modal.querySelectorAll('tr.k-master-row').forEach(tr => {
-      const mentor = cell(tr, '담당 멘토')?.textContent.trim() || '';
-      if (!re.test(mentor)) return;
-      const links = cell(tr, '수강생')?.querySelectorAll('.b080108-link') || [];
-      const name = links[0]?.textContent.trim() || '';
-      const no = links[1]?.textContent.trim() || '';
-      const key = [title, no, name, cell(tr, '개강일')?.textContent.trim()].join('|');
-      if (seen.has(key)) return;
-      seen.add(key);
-      found.push({
-        subj: cell(tr, '배정 과목')?.textContent.trim() || title, name, no,
-        age: cell(tr, '나이')?.textContent.trim() || '',
-        status: cell(tr, '수강상태')?.textContent.trim() || '',
-        start: cell(tr, '개강일')?.textContent.trim() || '', mentor,
-      });
+      if (!re.test(cell(tr, '담당 멘토')?.textContent.trim() || '')) return;
+      const name = cell(tr, '수강생')?.querySelector('.b080108-link')?.textContent.trim();
+      if (name) names.add(name);
     });
     if (!scroller || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) break;
     scroller.scrollTop += scroller.clientHeight;
     await sleep(300);
   }
+  if (scroller) scroller.scrollTop = 0;
+  return [...names];
 }
 
 // ── 내 이름 / 행 강조 ────────────────────────────────────────
@@ -526,7 +559,7 @@ let _t;
 function observe() {
   new MutationObserver(() => {
     clearTimeout(_t);
-    _t = setTimeout(() => { applyMyRow(); applyBadges(); applyStuMarks(); }, 600); // 뱃지가 마지막 → 재컨택 노랑이 초록에 안 가려짐
+    _t = setTimeout(() => { applyMyRow(); applyBadges(); applyStuMarks(); passiveUpdate(); }, 600); // 뱃지가 마지막 → 재컨택 노랑이 초록에 안 가려짐
   }).observe(document.body, { childList: true, subtree: true });
 }
 
