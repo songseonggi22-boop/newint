@@ -19,6 +19,7 @@ const PANEL_CSS = `
   font-size: 22px; cursor: pointer; line-height: 48px;
   text-align: center; padding: 0;
   box-shadow: 0 4px 16px rgba(79,70,229,.4);
+  touch-action: none; user-select: none;
 }
 #panel {
   position: fixed; bottom: 84px; right: 24px; z-index: 9998;
@@ -66,8 +67,9 @@ input[type=text], input[type=date], input[type=month] {
 // ── 초기화 ───────────────────────────────────────────────────
 let S = null; // Shadow root
 // ponytail: 인트라넷 팝업창(?popup=1)은 패널·뱃지가 필요 없고 오류만 남김 → 아예 실행 안 함
-if (!/[?&]popup=1/.test(location.search)) chrome.storage.local.get(['holidays','myName','pendingContact','stuMarks'], data => {
+if (!/[?&]popup=1/.test(location.search)) chrome.storage.local.get(['holidays','myName','pendingContact','stuMarks','btnPos'], data => {
   window._kihSD = data.stuMarks      || null; // 저장된 내 수강생 표시
+  window._kihBP = data.btnPos        || null; // 🏢 버튼 위치
   window._kihH  = data.holidays      || {};
   window._kihMe = data.myName        || '';
   window._kihPC = data.pendingContact || null;
@@ -159,7 +161,7 @@ function buildPanel() {
     S.getElementById(`pane-${t.dataset.p}`).classList.add('on');
   });
 
-  S.getElementById('btn').addEventListener('click', () => S.getElementById('panel').classList.toggle('open'));
+  makeDraggable();
   S.getElementById('btn-today').addEventListener('click', () => { S.getElementById('i-date').value = toISO(new Date()); });
   S.getElementById('btn-contact').addEventListener('click', doContact);
   S.getElementById('btn-biz').addEventListener('click', doBizCheck);
@@ -173,6 +175,40 @@ function buildPanel() {
   loadHol(nowYM);
   buildGagangGrid();
   document.addEventListener('keydown', e => { if (e.altKey && e.key==='k') S.getElementById('panel').classList.toggle('open'); });
+}
+
+// 🏢 버튼을 끌어서 원하는 위치로 이동 (위치 저장). 살짝 끈 건 클릭으로 처리
+function makeDraggable() {
+  const btn = S.getElementById('btn'), panel = S.getElementById('panel');
+  let pos = window._kihBP || { x: innerWidth - 72, y: innerHeight - 72 }; // 버튼 왼쪽 위 좌표
+  const place = () => {
+    pos.x = Math.min(Math.max(0, pos.x), innerWidth - 48); // 화면 밖으로 안 나가게
+    pos.y = Math.min(Math.max(0, pos.y), innerHeight - 48);
+    Object.assign(btn.style, { left: pos.x + 'px', top: pos.y + 'px', right: 'auto', bottom: 'auto' });
+    // 패널은 버튼 기준 화면 넓은 쪽으로 펼침
+    const up = pos.y > innerHeight / 2, toLeft = pos.x > innerWidth / 2;
+    Object.assign(panel.style, {
+      top: up ? 'auto' : pos.y + 60 + 'px', bottom: up ? innerHeight - pos.y + 12 + 'px' : 'auto',
+      left: toLeft ? 'auto' : pos.x + 'px', right: toLeft ? innerWidth - pos.x - 48 + 'px' : 'auto',
+      maxHeight: (up ? pos.y - 12 : innerHeight - pos.y - 60) - 12 + 'px',
+    });
+  };
+  let drag = null, moved = false;
+  btn.addEventListener('pointerdown', e => {
+    drag = { dx: e.clientX - pos.x, dy: e.clientY - pos.y, sx: e.clientX, sy: e.clientY };
+    moved = false;
+    btn.setPointerCapture(e.pointerId);
+  });
+  btn.addEventListener('pointermove', e => {
+    if (!drag || (!moved && Math.hypot(e.clientX - drag.sx, e.clientY - drag.sy) < 5)) return;
+    moved = true;
+    pos = { x: e.clientX - drag.dx, y: e.clientY - drag.dy };
+    place();
+  });
+  btn.addEventListener('pointerup', () => { if (drag && moved) chrome.storage.local.set({ btnPos: pos }); drag = null; });
+  btn.addEventListener('click', () => { if (moved) moved = false; else panel.classList.toggle('open'); });
+  addEventListener('resize', place);
+  place();
 }
 
 // ── 컨택 조회 ────────────────────────────────────────────────
