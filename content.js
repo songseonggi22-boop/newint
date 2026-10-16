@@ -703,22 +703,22 @@ async function moveOne(r, iso, memo, text) {
   const link = q('.linkBtn').find(b => b.textContent.trim().endsWith(`(${r.no})`));
   if (!link) return '목록에서 행을 못 찾음 (페이지가 바뀌었나요?)';
   link.click();
-  const info = await waitFor(() => openDrawers().find(d => d.querySelector('#inquiry_no')?.value === r.no));
-  if (!info) return '문의DB 상세창이 안 열림';
-  const logBtn = [...info.querySelectorAll('.ant-drawer-footer button')].find(b => b.textContent.trim() === '상담일지');
-  if (!logBtn) return '상세창에 상담일지 버튼이 없음';
-  logBtn.click();
-  const d = await waitFor(() => openDrawers().find(x => x.textContent.includes('상담메모 작성')));
+  // 이름을 누르면 상담메모 작성 창이 바로 뜸 (화면에 따라 문의DB 상세창이 먼저 뜨면 상담일지 버튼으로)
+  const memoOpen = () => openDrawers().find(x => x.textContent.includes('상담메모 작성') && x.textContent.includes(`(${r.no})`));
+  let d = await waitFor(() => memoOpen() || openDrawers().find(x => x.querySelector('#inquiry_no')?.value === r.no));
+  if (d && !memoOpen()) {
+    [...d.querySelectorAll('.ant-drawer-footer button')].find(b => b.textContent.trim() === '상담일지')?.click();
+    d = await waitFor(memoOpen);
+  }
   if (!d) return '상담메모 작성 창이 안 열림';
-  if (!d.textContent.includes(`(${r.no})`)) return '상담메모 창의 문의자가 다름';
 
-  const e1 = await pickAntOption(d.querySelector('#result')?.closest('.ant-select'), r.status);
+  // 상담구분은 상담메모 내역의 최신(등록일시 가장 늦은) 기록 그대로
+  const e1 = await pickAntOption(d.querySelector('#result')?.closest('.ant-select'), latestStatus(d) || r.status);
   if (e1) return e1;
   const date = d.querySelector('#reservation_date');
   if (!date) return '날짜 칸을 못 찾음';
-  setAntDate(date, iso);
-  await sleep(300);
-  if (date.value !== iso) return `날짜 입력 실패 (칸 값: "${date.value}")`;
+  await clickAntDate(date, iso);
+  if (date.value !== iso) return `날짜 선택 실패 (칸 값: "${date.value}")`;
   if (memo) setReactVal(d.querySelector('#result_memo'), memo);
   setReactVal(d.querySelector('#counsel_memo'), text);
   await sleep(300);
@@ -735,6 +735,34 @@ async function moveOne(r, iso, memo, text) {
   }, 8000);
   if (!res) return '저장 후 반응 없음 — 이 DB가 저장됐는지 직접 확인해주세요';
   return res.e || '';
+}
+
+// 상담메모 내역 중 "[상담메모 등록일시: …]"가 가장 늦은 기록의 상담구분
+function latestStatus(d) {
+  let best = '', bestAt = '';
+  d.querySelectorAll('div').forEach(el => {
+    const m = el.children.length === 0 && el.textContent.match(/상담메모 등록일시:\s*([\d\-: ]+)/);
+    if (!m || m[1] <= bestAt) return;
+    const th = [...(el.nextElementSibling?.querySelectorAll('th') || [])].find(t => t.textContent.trim() === '상담구분');
+    const v = th?.nextElementSibling?.textContent.trim();
+    if (v) { best = v; bestAt = m[1]; }
+  });
+  return best;
+}
+
+// 날짜 칸을 열어 달력에서 그 날짜를 눌러 선택 (다른 달이면 다음/이전 달로 넘김). 안 되면 직접 입력
+async function clickAntDate(input, iso) {
+  input.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+  input.click(); input.focus();
+  const dd = await waitFor(() => q('.ant-picker-dropdown:not(.ant-picker-dropdown-hidden)').pop(), 2000);
+  for (let k = 0; dd && k < 24; k++) {
+    const cell = dd.querySelector(`td.ant-picker-cell-in-view[title="${iso}"]`);
+    if (cell) { (cell.querySelector('.ant-picker-cell-inner') || cell).click(); await sleep(300); break; }
+    const shown = dd.querySelector(`td.ant-picker-cell-in-view[title]`)?.getAttribute('title') || '';
+    dd.querySelector(shown.slice(0, 7) < iso.slice(0, 7) ? '.ant-picker-header-next-btn' : '.ant-picker-header-prev-btn')?.click();
+    await sleep(200);
+  }
+  if (input.value !== iso) { setAntDate(input, iso); await sleep(300); }
 }
 
 // antd 셀렉트에서 항목 고르기 (가상 목록이라 안 보이면 내려가며 찾음)
