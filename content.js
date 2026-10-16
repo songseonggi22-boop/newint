@@ -688,7 +688,7 @@ async function runBulk() {
     if (!_bulkRun) { err = '중지함'; break; }
     out.textContent = `⏳ ${done.length + 1}/${list.length} ${r.who} 처리 중… (화면 건드리지 말기)`;
     err = await moveOne(r, iso, memo, text);
-    await closeDrawers();
+    if (!(await closeDrawers()) && !err) { done.push(r.who); err = '저장은 됐는데 창을 못 닫음 — 직접 닫고 남은 DB 다시 진행'; }
     if (err) { err = `${r.who}: ${err}`; break; } // ponytail: 한 건이라도 실패하면 멈춤 — 같은 원인으로 나머지도 틀어질 수 있음
     done.push(r.who);
   }
@@ -727,13 +727,16 @@ async function moveOne(r, iso, memo, text) {
   const save = [...d.querySelectorAll('button'), ...q('button')].find(b => b.textContent.replace(/\s+/g, ' ').trim() === '상담일지 저장')
     || [...d.querySelectorAll('.ant-drawer-footer button')].find(b => b.textContent.trim() === '저장');
   if (!save) return '저장 버튼을 못 찾음';
+  const memoCnt = () => (d.textContent.match(/상담메모 등록일시/g) || []).length;
+  const before = memoCnt();
   save.click();
   // "저장하시겠습니까?" 같은 확인창이 뜨면 확인
   (await waitFor(() => q('.ant-modal-confirm .ant-btn-primary, .ant-popconfirm:not(.ant-popover-hidden) .ant-btn-primary')[0], 1500))?.click();
   const res = await waitFor(() => {
     const e = d.querySelector('.ant-form-item-explain-error') || q('.ant-message-error')[0];
     if (e) return { e: e.textContent.trim() || '저장 오류' };
-    if (!d.classList.contains('ant-drawer-open') || q('.ant-message-success')[0]) return { ok: 1 };
+    // 저장되면 창은 그대로 있고 상담메모 내역에 한 줄이 늘어남
+    if (!d.classList.contains('ant-drawer-open') || memoCnt() > before || q('.ant-message-success')[0]) return { ok: 1 };
   }, 8000);
   if (!res) return '저장 후 반응 없음 — 이 DB가 저장됐는지 직접 확인해주세요';
   return res.e || '';
@@ -787,13 +790,20 @@ async function pickAntOption(wrap, label) {
   return `상담결과 "${label}" 항목이 없음 (목록: ${[...seen].join(', ')})`;
 }
 
+// 떠 있는 창 닫기: X 버튼 → 안 닫히면 빈 여백(어두운 배경) 클릭 → 그래도 안 되면 Esc. 다 닫히면 true
 async function closeDrawers() {
-  for (let k = 0; k < 3; k++) {
+  const fire = (el, ...types) => types.forEach(t => el.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window })));
+  for (let k = 0; k < 9; k++) {
     const d = openDrawers().pop();
-    if (!d) return;
-    d.querySelector('.ant-drawer-close')?.click();
-    await sleep(500);
+    if (!d) return true;
+    const x = d.querySelector('.ant-drawer-close, button[aria-label="닫기"], button[aria-label="Close"]');
+    const mask = d.querySelector('.ant-drawer-mask');
+    if (k % 3 === 0 && x) fire(x, 'mousedown', 'mouseup', 'click');
+    else if (k % 3 === 1 && mask) fire(mask, 'mousedown', 'mouseup', 'click');
+    else [d, document].forEach(t => t.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true })));
+    await waitFor(() => !d.classList.contains('ant-drawer-open'), 1200);
   }
+  return !openDrawers().length;
 }
 
 // ── MutationObserver ─────────────────────────────────────────
