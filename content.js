@@ -723,7 +723,9 @@ async function moveOne(r, iso, memo, text) {
   setReactVal(d.querySelector('#counsel_memo'), text);
   await sleep(300);
 
-  const save = [...d.querySelectorAll('.ant-drawer-footer button')].find(b => b.textContent.trim() === '저장');
+  // 저장 버튼 = 오른쪽 아래 "상담일지 저장" (창 안에 없으면 화면 전체에서)
+  const save = [...d.querySelectorAll('button'), ...q('button')].find(b => b.textContent.replace(/\s+/g, ' ').trim() === '상담일지 저장')
+    || [...d.querySelectorAll('.ant-drawer-footer button')].find(b => b.textContent.trim() === '저장');
   if (!save) return '저장 버튼을 못 찾음';
   save.click();
   // "저장하시겠습니까?" 같은 확인창이 뜨면 확인
