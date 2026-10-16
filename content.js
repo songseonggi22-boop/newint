@@ -690,7 +690,7 @@ async function runBulk() {
     err = await moveOne(r, iso, memo, text);
     if (!(await closeDrawers()) && !err) { done.push(r.who); err = '저장은 됐는데 창을 못 닫음 — 직접 닫고 남은 DB 다시 진행'; }
     if (err) { err = `${r.who}: ${err}`; break; } // ponytail: 한 건이라도 실패하면 멈춤 — 같은 원인으로 나머지도 틀어질 수 있음
-    done.push(r.who);
+    done.push(`${r.who}(${r.used})`);
   }
   _bulkRun = false; btn.textContent = '🚚 넘기기';
   out.innerHTML = `✅ ${done.length}건 완료` + (done.length ? `<br>${done.map(esc).join(', ')}` : '')
@@ -713,8 +713,13 @@ async function moveOne(r, iso, memo, text) {
   if (!d) return '상담메모 작성 창이 안 열림';
 
   // 상담구분은 상담메모 내역의 최신(등록일시 가장 늦은) 기록 그대로
-  const e1 = await pickAntOption(d.querySelector('#result')?.closest('.ant-select'), latestStatus(d) || r.status);
+  // 내역은 창이 뜬 뒤 늦게 채워짐 → 두 번 연속 같은 값이 읽힐 때까지 기다림
+  let status = '';
+  for (let k = 0; k < 20; k++) { await sleep(400); const s = latestStatus(d); if (s && s === status) break; status = s; }
+  if (!status) return '상담메모 내역에서 최신 상담구분을 못 읽음';
+  const e1 = await pickAntOption(d.querySelector('#result')?.closest('.ant-select'), status);
   if (e1) return e1;
+  r.used = status;
   const date = d.querySelector('#reservation_date');
   if (!date) return '날짜 칸을 못 찾음';
   await clickAntDate(date, iso);
@@ -742,17 +747,11 @@ async function moveOne(r, iso, memo, text) {
   return res.e || '';
 }
 
-// 상담메모 내역 중 "[상담메모 등록일시: …]"가 가장 늦은 기록의 상담구분
+// 상담메모 내역 맨 위(최신) 기록의 상담구분
 function latestStatus(d) {
-  let best = '', bestAt = '';
-  d.querySelectorAll('div').forEach(el => {
-    const m = el.children.length === 0 && el.textContent.match(/상담메모 등록일시:\s*([\d\-: ]+)/);
-    if (!m || m[1] <= bestAt) return;
-    const th = [...(el.nextElementSibling?.querySelectorAll('th') || [])].find(t => t.textContent.trim() === '상담구분');
-    const v = th?.nextElementSibling?.textContent.trim();
-    if (v) { best = v; bestAt = m[1]; }
-  });
-  return best;
+  const top = [...d.querySelectorAll('div')].find(el => el.children.length === 0 && el.textContent.includes('상담메모 등록일시'));
+  const th = [...(top?.nextElementSibling?.querySelectorAll('th') || [])].find(t => t.textContent.trim() === '상담구분');
+  return th?.nextElementSibling?.textContent.trim() || '';
 }
 
 // 날짜 칸을 열어 달력에서 그 날짜를 눌러 선택 (다른 달이면 다음/이전 달로 넘김). 안 되면 직접 입력
@@ -781,7 +780,13 @@ async function pickAntOption(wrap, label) {
     const opts = [...dd.querySelectorAll('.ant-select-item-option')];
     opts.forEach(o => seen.add(labelOf(o)));
     const o = opts.find(o => labelOf(o) === label);
-    if (o) { o.click(); await sleep(300); return ''; }
+    if (o) {
+      ['mouseenter', 'mousemove', 'mousedown', 'mouseup', 'click'].forEach(t => o.dispatchEvent(new MouseEvent(t, { bubbles: true, cancelable: true, view: window })));
+      await sleep(300);
+      // 실제로 칸에 들어간 값 확인 — 다르면 저장하지 않고 멈춤
+      const got = labelOf(wrap.querySelector('.ant-select-selection-item') || wrap);
+      return got === label ? '' : `상담구분을 "${label}"로 못 고름 (칸 값: "${got}")`;
+    }
     const h = dd.querySelector('.rc-virtual-list-holder');
     if (!h) break;
     h.scrollTop += 150;
