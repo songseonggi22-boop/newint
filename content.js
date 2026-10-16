@@ -40,7 +40,7 @@ const PANEL_CSS = `
 .pane { display: none; padding: 12px 14px; overflow-y: auto; flex: 1; }
 .pane.on { display: block; }
 label { display: block; font-size: 11px; color: #6b7280; margin: 6px 0 3px; }
-input[type=text], input[type=date], input[type=month] {
+input[type=text], input[type=date], input[type=month], input[type=password] {
   width: 100%; padding: 6px 8px; border: 1px solid #d1d5db;
   border-radius: 7px; font-size: 13px;
 }
@@ -67,7 +67,8 @@ input[type=text], input[type=date], input[type=month] {
 // ── 초기화 ───────────────────────────────────────────────────
 let S = null; // Shadow root
 // ponytail: 인트라넷 팝업창(?popup=1)은 패널·뱃지가 필요 없고 오류만 남김 → 아예 실행 안 함
-if (!/[?&]popup=1/.test(location.search)) chrome.storage.local.get(['holidays','myName','pendingContact','stuMarks','btnPos'], data => {
+if (!/[?&]popup=1/.test(location.search)) chrome.storage.local.get(['holidays','myName','pendingContact','stuMarks','btnPos','bulkOK'], data => {
+  window._kihBO = !!data.bulkOK;            // 🔒 일괄 탭 잠금 해제 여부
   window._kihSD = data.stuMarks      || null; // 저장된 내 수강생 표시
   window._kihBP = data.btnPos        || null; // 🏢 버튼 위치
   window._kihH  = data.holidays      || {};
@@ -104,6 +105,7 @@ function buildPanel() {
         <button class="tab on" data-p="contact">📞 컨택조회</button>
         <button class="tab"    data-p="schedule">📅 시간표</button>
         <button class="tab"    data-p="settings">⚙️ 설정</button>
+        <button class="tab"    data-p="bulk">🔒 일괄</button>
       </div>
       <div id="pane-contact" class="pane on">
         <p class="desc">날짜·담당자 → 문의DB 필터 자동 적용</p>
@@ -150,6 +152,29 @@ function buildPanel() {
         <div class="sep"></div>
         <div class="desc"><b>단축키</b><br>Alt+K: 열기/닫기</div>
       </div>
+      <div id="pane-bulk" class="pane">
+        <div id="bulk-lock">
+          <p class="desc">비밀번호를 넣어야 쓸 수 있는 기능입니다.</p>
+          <div class="row">
+            <input id="i-pw" type="password" placeholder="비밀번호"/>
+            <button class="sm g" id="btn-pw">열기</button>
+          </div>
+          <div id="r-pw" class="result"></div>
+        </div>
+        <div id="bulk-body" style="display:none;">
+          <p class="desc">다음컨택일 일괄 넘기기<br>① 문의DB 목록에서 넘길 DB 체크 → ② 불러오기 → ③ 목록 다시 확인 → ④ 넘기기</p>
+          <button class="primary" id="btn-bulk-load">📋 체크한 DB 불러오기</button>
+          <div id="bulk-list" class="result"></div>
+          <label>넘길 날짜</label>
+          <input id="i-bulk-date" type="date" value="${addDays(today, 1)}"/>
+          <label>결과메모 <span class="hint">(비우면 안 적음)</span></label>
+          <input id="i-bulk-memo" type="text" value="${isoToMD(addDays(today, 1))}"/>
+          <label>상담내용 <span class="hint">(저장 후 수정 불가)</span></label>
+          <input id="i-bulk-text" type="text" value="다음컨택일 ${isoToMD(addDays(today, 1))}로 이동"/>
+          <button class="primary" id="btn-bulk-run" style="margin-top:8px;background:#dc2626;">🚚 넘기기</button>
+          <div id="r-bulk" class="result"></div>
+        </div>
+      </div>
     </div>`;
 
   // 탭 전환
@@ -171,6 +196,16 @@ function buildPanel() {
   S.getElementById('btn-mystu').addEventListener('click', () => doMyStudents(false));
   S.getElementById('btn-mystu-all').addEventListener('click', () => doMyStudents(true));
   S.getElementById('i-ym').addEventListener('change', e => loadHol(e.target.value));
+  S.getElementById('btn-pw').addEventListener('click', unlockBulk);
+  S.getElementById('i-pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlockBulk(); });
+  S.getElementById('btn-bulk-load').addEventListener('click', loadBulk);
+  S.getElementById('btn-bulk-run').addEventListener('click', runBulk);
+  S.getElementById('i-bulk-date').addEventListener('change', e => {
+    const md = isoToMD(e.target.value);
+    S.getElementById('i-bulk-memo').value = md;
+    S.getElementById('i-bulk-text').value = `다음컨택일 ${md}로 이동`;
+  });
+  if (window._kihBO) showBulk();
 
   loadHol(nowYM);
   buildGagangGrid();
@@ -597,6 +632,140 @@ function applyBadges() {
   });
 }
 
+// ── 🔒 다음컨택일 일괄 넘기기 (비밀번호 잠금) ──────────────────
+// ponytail: 확장 코드는 누구나 열어볼 수 있어 실수 방지용 잠금. 원문 대신 SHA-256 해시만 둠
+const BULK_PW = '9dc6abc967dad3e2d115d25bdcb5b998f06ebda87c5f784800698d7cc1b2273d';
+let _bulk = [], _bulkRun = false;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+async function unlockBulk() {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(S.getElementById('i-pw').value));
+  const h = [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  if (h !== BULK_PW) { S.getElementById('r-pw').textContent = '❌ 비밀번호가 틀렸습니다.'; return; }
+  chrome.storage.local.set({ bulkOK: true }); // 이 PC에서는 다음부터 안 물어봄
+  showBulk();
+}
+function showBulk() {
+  S.getElementById('bulk-lock').style.display = 'none';
+  S.getElementById('bulk-body').style.display = '';
+}
+
+// 문의DB 표(다음컨택일 칸이 있는 Kendo 그리드)에서 체크된 행 읽기
+function loadBulk() {
+  const out = S.getElementById('bulk-list');
+  const g = q('.k-grid').find(g => [...g.querySelectorAll('.k-column-title')].some(t => t.textContent.trim() === '다음컨택일'));
+  if (!g) { out.textContent = '도메인별/멘토별문의DB 목록 화면에서 눌러주세요.'; return; }
+  const col = {};
+  g.querySelectorAll('th[aria-colindex]').forEach(th => {
+    const t = th.querySelector('.k-column-title')?.textContent.trim();
+    if (t) col[t] = th.getAttribute('aria-colindex');
+  });
+  const cell = (tr, name) => tr.querySelector(`td[aria-colindex="${col[name]}"]`)?.textContent.trim() || '';
+  _bulk = [...g.querySelectorAll('tr.k-master-row')]
+    .filter(tr => tr.classList.contains('k-selected') || tr.querySelector('input.k-checkbox')?.getAttribute('aria-checked') === 'true')
+    .map(tr => { const who = cell(tr, '문의자'); return { who, no: (who.match(/\((\d+)\)$/) || [])[1], status: cell(tr, '상담구분'), next: cell(tr, '다음컨택일') }; })
+    .filter(r => r.no);
+  if (!_bulk.length) { out.textContent = '체크된 DB가 없습니다. 목록 왼쪽 체크박스를 먼저 체크하세요.'; return; }
+  out.innerHTML = `<b>${_bulk.length}건</b> <span class="hint">(뺄 DB는 체크 해제)</span>` + _bulk.map((r, i) =>
+    `<div style="display:flex;gap:6px;align-items:center;margin:3px 0;"><input type="checkbox" data-i="${i}" checked/>${esc(r.who)} · ${esc(r.status)} · ${esc(r.next)}</div>`).join('');
+}
+
+async function runBulk() {
+  const out = S.getElementById('r-bulk'), btn = S.getElementById('btn-bulk-run');
+  if (_bulkRun) { _bulkRun = false; btn.textContent = '⏹ 중지 중…'; return; }
+  const iso  = S.getElementById('i-bulk-date').value;
+  const memo = S.getElementById('i-bulk-memo').value.trim();
+  const text = S.getElementById('i-bulk-text').value.trim();
+  const list = _bulk.filter((_, i) => S.querySelector(`#bulk-list input[data-i="${i}"]`)?.checked);
+  if (!list.length) { out.textContent = '먼저 "체크한 DB 불러오기"를 누르세요.'; return; }
+  if (!iso || !text) { out.textContent = '넘길 날짜와 상담내용을 입력하세요.'; return; }
+  if (!confirm(`${list.length}건의 다음컨택일을 ${fmt(iso)}로 넘깁니다.\n건마다 상담메모가 새로 저장되고, 저장 후에는 수정할 수 없습니다.\n\n${list.map(r => `${r.who} (${r.status})`).join('\n')}\n\n진행할까요?`)) return;
+
+  _bulkRun = true; btn.textContent = '⏹ 중지';
+  const done = [];
+  let err = '';
+  for (const r of list) {
+    if (!_bulkRun) { err = '중지함'; break; }
+    out.textContent = `⏳ ${done.length + 1}/${list.length} ${r.who} 처리 중… (화면 건드리지 말기)`;
+    err = await moveOne(r, iso, memo, text);
+    await closeDrawers();
+    if (err) { err = `${r.who}: ${err}`; break; } // ponytail: 한 건이라도 실패하면 멈춤 — 같은 원인으로 나머지도 틀어질 수 있음
+    done.push(r.who);
+  }
+  _bulkRun = false; btn.textContent = '🚚 넘기기';
+  out.innerHTML = `✅ ${done.length}건 완료` + (done.length ? `<br>${done.map(esc).join(', ')}` : '')
+    + (err ? `<br>❌ 멈춤 — ${esc(err)}<br>남은 DB는 다시 체크 → 불러오기 후 진행하세요.` : '');
+}
+
+const openDrawers = () => q('.ant-drawer-open');
+// 문의자 클릭 → 문의DB 상세 → 상담일지 → 상담결과(지금 그대로)·날짜·결과메모·상담내용 → 저장
+async function moveOne(r, iso, memo, text) {
+  const link = q('.linkBtn').find(b => b.textContent.trim().endsWith(`(${r.no})`));
+  if (!link) return '목록에서 행을 못 찾음 (페이지가 바뀌었나요?)';
+  link.click();
+  const info = await waitFor(() => openDrawers().find(d => d.querySelector('#inquiry_no')?.value === r.no));
+  if (!info) return '문의DB 상세창이 안 열림';
+  const logBtn = [...info.querySelectorAll('.ant-drawer-footer button')].find(b => b.textContent.trim() === '상담일지');
+  if (!logBtn) return '상세창에 상담일지 버튼이 없음';
+  logBtn.click();
+  const d = await waitFor(() => openDrawers().find(x => x.textContent.includes('상담메모 작성')));
+  if (!d) return '상담메모 작성 창이 안 열림';
+  if (!d.textContent.includes(`(${r.no})`)) return '상담메모 창의 문의자가 다름';
+
+  const e1 = await pickAntOption(d.querySelector('#result')?.closest('.ant-select'), r.status);
+  if (e1) return e1;
+  const date = d.querySelector('#reservation_date');
+  if (!date) return '날짜 칸을 못 찾음';
+  setAntDate(date, iso);
+  await sleep(300);
+  if (date.value !== iso) return `날짜 입력 실패 (칸 값: "${date.value}")`;
+  if (memo) setReactVal(d.querySelector('#result_memo'), memo);
+  setReactVal(d.querySelector('#counsel_memo'), text);
+  await sleep(300);
+
+  const save = [...d.querySelectorAll('.ant-drawer-footer button')].find(b => b.textContent.trim() === '저장');
+  if (!save) return '저장 버튼을 못 찾음';
+  save.click();
+  // "저장하시겠습니까?" 같은 확인창이 뜨면 확인
+  (await waitFor(() => q('.ant-modal-confirm .ant-btn-primary, .ant-popconfirm:not(.ant-popover-hidden) .ant-btn-primary')[0], 1500))?.click();
+  const res = await waitFor(() => {
+    const e = d.querySelector('.ant-form-item-explain-error') || q('.ant-message-error')[0];
+    if (e) return { e: e.textContent.trim() || '저장 오류' };
+    if (!d.classList.contains('ant-drawer-open') || q('.ant-message-success')[0]) return { ok: 1 };
+  }, 8000);
+  if (!res) return '저장 후 반응 없음 — 이 DB가 저장됐는지 직접 확인해주세요';
+  return res.e || '';
+}
+
+// antd 셀렉트에서 항목 고르기 (가상 목록이라 안 보이면 내려가며 찾음)
+async function pickAntOption(wrap, label) {
+  if (!wrap) return '상담결과 칸을 못 찾음';
+  (wrap.querySelector('.ant-select-selector') || wrap).dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  const dd = await waitFor(() => q('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').pop(), 2000);
+  if (!dd) return '상담결과 목록이 안 열림';
+  const seen = new Set();
+  for (let k = 0; k < 15; k++) {
+    const opts = [...dd.querySelectorAll('.ant-select-item-option')];
+    opts.forEach(o => seen.add(labelOf(o)));
+    const o = opts.find(o => labelOf(o) === label);
+    if (o) { o.click(); await sleep(300); return ''; }
+    const h = dd.querySelector('.rc-virtual-list-holder');
+    if (!h) break;
+    h.scrollTop += 150;
+    await sleep(150);
+  }
+  return `상담결과 "${label}" 항목이 없음 (목록: ${[...seen].join(', ')})`;
+}
+
+async function closeDrawers() {
+  for (let k = 0; k < 3; k++) {
+    const d = openDrawers().pop();
+    if (!d) return;
+    d.querySelector('.ant-drawer-close')?.click();
+    await sleep(500);
+  }
+}
+
 // ── MutationObserver ─────────────────────────────────────────
 let _t;
 function observe() {
@@ -618,7 +787,8 @@ function navigateTo(labels, i=0) {
 
 // ── 유틸 ─────────────────────────────────────────────────────
 function setReactVal(el, v) {
-  try { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,v); } catch(_) { el.value=v; }
+  const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  try { Object.getOwnPropertyDescriptor(proto,'value').set.call(el,v); } catch(_) { el.value=v; }
   el.dispatchEvent(new Event('input',{bubbles:true}));
   el.dispatchEvent(new Event('change',{bubbles:true}));
 }
