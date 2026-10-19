@@ -661,14 +661,17 @@ function loadBulk() {
     if (t) col[t] = th.getAttribute('aria-colindex');
   });
   const cell = (tr, name) => tr.querySelector(`td[aria-colindex="${col[name]}"]`)?.textContent.trim() || '';
+  // 문의자 칸이 "이름(번호)" → "이름"만으로 바뀜 → 이름+전화번호로 행을 구분
   _bulk = [...g.querySelectorAll('tr.k-master-row')]
-    .filter(tr => tr.classList.contains('k-selected') || tr.querySelector('input.k-checkbox')?.getAttribute('aria-checked') === 'true')
-    .map(tr => { const who = cell(tr, '문의자'); return { who, no: (who.match(/\((\d+)\)$/) || [])[1], status: cell(tr, '상담구분'), next: cell(tr, '다음컨택일') }; })
-    .filter(r => r.no);
+    .filter(tr => { const cb = tr.querySelector('input.k-checkbox'); return tr.classList.contains('k-selected') || cb?.checked || cb?.getAttribute('aria-checked') === 'true'; })
+    .map(tr => ({ who: cell(tr, '문의자'), phone: rowPhone(tr), status: cell(tr, '상담구분'), next: cell(tr, '다음컨택일') }))
+    .filter(r => r.who);
   if (!_bulk.length) { out.textContent = '체크된 DB가 없습니다. 목록 왼쪽 체크박스를 먼저 체크하세요.'; return; }
   out.innerHTML = `<b>${_bulk.length}건</b> <span class="hint">(뺄 DB는 체크 해제)</span>` + _bulk.map((r, i) =>
-    `<div style="display:flex;gap:6px;align-items:center;margin:3px 0;"><input type="checkbox" data-i="${i}" checked/>${esc(r.who)} · ${esc(r.status)} · ${esc(r.next)}</div>`).join('');
+    `<div style="display:flex;gap:6px;align-items:center;margin:3px 0;"><input type="checkbox" data-i="${i}" checked/>${esc(r.who)} · ${esc(r.phone.slice(-4))} · ${esc(r.status)} · ${esc(r.next)}</div>`).join('');
 }
+const rowPhone = tr => [...tr.querySelectorAll('td')].map(td => td.textContent.trim()).find(t => /^0\d{1,2}-[\d*]{3,4}-\d{4}$/.test(t)) || '';
+const rowName = tr => (tr.querySelector('.linkBtn')?.textContent || '').trim().replace(/\(\d+\)$/, '');
 
 async function runBulk() {
   const out = S.getElementById('r-bulk'), btn = S.getElementById('btn-bulk-run');
@@ -700,12 +703,15 @@ async function runBulk() {
 const openDrawers = () => q('.ant-drawer-open');
 // 문의자 클릭 → 문의DB 상세 → 상담일지 → 상담결과(지금 그대로)·날짜·결과메모·상담내용 → 저장
 async function moveOne(r, iso, memo, text) {
-  const link = q('.linkBtn').find(b => b.textContent.trim().endsWith(`(${r.no})`));
-  if (!link) return '목록에서 행을 못 찾음 (페이지가 바뀌었나요?)';
-  link.click();
+  const name = r.who.replace(/\(\d+\)$/, '');
+  const tr = q('tr.k-master-row').find(t => rowName(t) === name && rowPhone(t) === r.phone);
+  if (!tr) return '목록에서 행을 못 찾음 (페이지가 바뀌었나요?)';
+  tr.querySelector('.linkBtn').click();
   // 이름을 누르면 상담메모 작성 창이 바로 뜸 (화면에 따라 문의DB 상세창이 먼저 뜨면 상담일지 버튼으로)
-  const memoOpen = () => openDrawers().find(x => x.textContent.includes('상담메모 작성') && x.textContent.includes(`(${r.no})`));
-  let d = await waitFor(() => memoOpen() || openDrawers().find(x => x.querySelector('#inquiry_no')?.value === r.no));
+  // 창 제목 옆 "이름(번호)"가 이 사람인지 확인
+  const memoOpen = () => openDrawers().find(x => x.textContent.includes('상담메모 작성')
+    && [...x.querySelectorAll('.CustomTitleSuffix span')].some(s => s.textContent.trim().replace(/\(\d+\)$/, '') === name));
+  let d = await waitFor(() => memoOpen() || openDrawers().find(x => x.querySelector('#name')?.value === name && x.querySelector('#cellphone')?.value === r.phone));
   if (d && !memoOpen()) {
     [...d.querySelectorAll('.ant-drawer-footer button')].find(b => b.textContent.trim() === '상담일지')?.click();
     d = await waitFor(memoOpen);
