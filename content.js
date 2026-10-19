@@ -418,90 +418,105 @@ function loadHol(ym) {
   if (el) el.value = (window._kihH[ym] || []).join(',');
 }
 
-// ── 내 수강생 보기 (시간표 수업마다 수강생 팝업을 열어 담당 멘토 확인) ──
-// ponytail: 인트라넷 API를 모르니 사람이 하는 클릭을 그대로 반복. 수업 1개당 약 2~3초
+// ── 내 수강생 보기 (시간표관리 "타임별 명단"을 읽어 수업 칸에 표시) ──
+// ponytail: 명단은 하루 단위 → 명단 날짜를 하루씩 넘기며 7일치를 읽어 합침
 let _stuRun = false;
-let _dbg = ''; // 0명일 때 패널에 띄울 첫 실패 원인
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function waitFor(fn, ms = 5000) {
   for (let t = 0; t < ms; t += 150) { const v = fn(); if (v) return v; await sleep(150); }
   return null;
 }
-const openPopover = () => Array.from(document.querySelectorAll('.ant-popover:not(.ant-popover-hidden)'))
-  .find(p => p.textContent.includes('수강생 보기'));
-const openStuModal = () => Array.from(document.querySelectorAll('.ant-modal-wrap'))
-  .find(w => w.style.display !== 'none' && w.querySelector('.ant-modal-title')?.textContent.trim() === '수강생');
+const rosterModal = () => Array.from(document.querySelectorAll('.ant-modal-wrap'))
+  .find(w => w.style.display !== 'none' && w.querySelector('.ant-modal-title')?.textContent.trim() === '타임별 수강생 명단');
 
-// 저장 구조: { me, classes: { 수업키: { cnt: 배정인원, names: [내 학생] } } } → chrome.storage 'stuMarks'
+// 저장 구조: { me, classes: { 수업키: { names: [내 학생] } } } → chrome.storage 'stuMarks'
 const stuDB = () => (window._kihSD ||= { me: '', classes: {} });
 const saveStuDB = () => chrome.storage.local.set({ stuMarks: stuDB() });
-const cntOf = ev => ev.querySelector('.sch-cnt')?.textContent.trim() || '0';
 // ponytail: "송성기"로 넣어도 "송성기2" 매칭
 const mentorRe = me => new RegExp('^' + me.replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*$');
 
-// full=false: 처음 보는 수업 + 배정인원이 바뀐 수업만 확인 / full=true: 전부 다시
+// 명단 표 → [{ room, subject, start, teacher, names: [내 학생] }]
+function readRoster(modal, re) {
+  const out = [];
+  let cur = null;
+  modal.querySelectorAll('.day-roster__table tbody tr').forEach(tr => {
+    const lec = tr.querySelector('td.day-roster__lecture');
+    if (lec) {
+      const [room, ...subj] = (lec.querySelector('.day-roster__lecture-link')?.textContent || '').split(' · ');
+      const [time = '', teacher = ''] = (lec.querySelector('div')?.textContent || '').split(' · ');
+      cur = { room: room.trim(), subject: subj.join(' · ').trim(), start: time.split('~')[0].trim(), teacher: teacher.trim(), names: [] };
+      out.push(cur);
+    }
+    const td = [...tr.children].filter(c => !c.classList.contains('day-roster__lecture'));
+    const name = (td[0]?.textContent || '').trim().replace(/\(\d+\)$/, '');
+    if (cur && name && re.test((td[1]?.textContent || '').trim())) cur.names.push(name);
+  });
+  return out;
+}
+
+// 명단의 수업 → 시간표 칸 찾기: 과목명 같은 칸 중에서 강의실·강사·시작시간으로 좁힘
+const evText = ev => ((ev.getAttribute('aria-label') || '') + ' ' + ev.textContent).replace(/\s+/g, ' ');
+function findEvents(evs, L) {
+  const same = evs.filter(ev => (ev.querySelector('.sch-title')?.textContent.trim() || '') === L.subject);
+  let cur = same.length ? same : evs.filter(ev => evText(ev).includes(L.subject));
+  for (const f of [t => t.includes(L.room), t => !L.teacher || t.includes(L.teacher), t => !L.start || t.includes(L.start)]) {
+    const n = cur.filter(ev => f(evText(ev)));
+    if (n.length) cur = n;
+  }
+  return cur;
+}
+
+// full=true(↻ 전체): 저장된 표시를 지우고 다시
 async function doMyStudents(full) {
   const btn = S.getElementById('btn-mystu');
   const out = S.getElementById('r-mystu');
   if (_stuRun) { _stuRun = false; return; } // 진행 중에 다시 누르면 중지
   const me = S.getElementById('i-mystu').value.trim();
   if (!me) { out.textContent = '담당자 이름을 입력해주세요.'; return; }
-  const all = Array.from(document.querySelectorAll('.rs-event'));
-  if (!all.length) { out.textContent = '시간표관리 화면에서 실행해주세요.'; return; }
+  const evs = Array.from(document.querySelectorAll('.rs-event'));
+  if (!evs.length) { out.textContent = '시간표관리 화면에서 실행해주세요.'; return; }
 
   const db = stuDB();
   if (full || db.me !== me) { db.me = me; db.classes = {}; }
-  const todo = all.filter(ev => {
-    const key = eventKey(ev), cnt = cntOf(ev);
-    if (cnt === '0') { db.classes[key] = { cnt, names: [] }; return false; } // 배정 0명은 열 필요 없음
-    return db.classes[key]?.cnt !== cnt;
-  });
-  saveStuDB();
-  if (!todo.length) { applyStuMarks(); out.textContent = '✅ 바뀐 수업 없음 — 저장된 표시 그대로'; return; }
-
   _stuRun = true; btn.textContent = '⏹ 중지';
   const re = mentorRe(me);
-  let fail = 0;
-  _dbg = '';
-  for (let i = 0; i < todo.length && _stuRun; i++) {
-    const ev = todo[i];
-    const title = ev.querySelector('.sch-title')?.textContent.trim() || '';
-    out.textContent = `⏳ ${i + 1}/${todo.length} ${title} …`;
-    try {
-      ev.scrollIntoView({ block: 'center', inline: 'center' });
-      ev.click();
-      const pop = await waitFor(openPopover, 3000);
-      if (!pop) { _dbg ||= `수업 눌러도 팝업 안 뜸 ("${title}")`; fail++; continue; }
-      Array.from(pop.querySelectorAll('button')).find(b => b.textContent.trim() === '수강생 보기')?.click();
-      const modal = await waitFor(() => readyModal(title), 6000);
-      if (!modal) {
-        const m = openStuModal();
-        _dbg ||= m ? `창 과목명 불일치: 창="${(m.querySelector('.HybridTable td')?.textContent || '').slice(0, 25)}" / 칸="${title}"` : '수강생 창을 못 찾음';
-      }
-      const names = modal && await collectRows(modal, re);
-      if (names) saveClass(eventKey(ev), cntOf(ev), names); else fail++;
-      modal?.querySelector('.ant-modal-close')?.click();
-      await waitFor(() => !openStuModal(), 2000);
-      const p2 = openPopover();
-      if (p2) Array.from(p2.querySelectorAll('button')).find(b => b.textContent.trim() === '확인')?.click();
-      await sleep(250);
-    } catch (e) { console.warn('[KIH] 수강생 확인 실패:', title, e); }
+  let modal = rosterModal();
+  if (!modal) { findBtn(['타임별 명단'])?.click(); modal = await waitFor(rosterModal, 5000); }
+  if (!modal) { _stuRun = false; btn.textContent = '👥 내 수강생 보기'; out.textContent = '"타임별 명단" 창을 못 열었습니다.'; return; }
+
+  const dateIn = modal.querySelector('.day-roster__toolbar input');
+  const start = dateIn?.value || toISO(new Date());
+  const lectures = [];
+  let days = 0;
+  for (let i = 0; i < 7 && _stuRun; i++) {
+    const iso = addDays(start, i);
+    out.textContent = `⏳ ${fmt(iso)} 명단 읽는 중… (${i + 1}/7)`;
+    if (i) {
+      const before = modal.querySelector('.day-roster__summary')?.textContent;
+      setAntDate(dateIn, iso);
+      if (!(await waitFor(() => dateIn.value === iso, 2000))) break; // 날짜를 못 바꾸면 읽은 날까지만
+      await waitFor(() => !modal.querySelector('.ant-spin-spinning') && modal.querySelector('.day-roster__summary')?.textContent !== before, 4000);
+      await sleep(300);
+    }
+    lectures.push(...readRoster(modal, re));
+    days++;
   }
+  modal.querySelector('.ant-modal-close')?.click();
+
+  const mine = lectures.filter(L => L.names.length);
+  const missed = new Set();
+  mine.forEach(L => {
+    const hit = findEvents(evs, L);
+    if (!hit.length) { missed.add(`${L.room} · ${L.subject}`); return; }
+    hit.forEach(ev => saveClass(eventKey(ev), L.names));
+  });
   const stopped = !_stuRun;
   _stuRun = false; btn.textContent = '👥 내 수강생 보기';
   const marked = Object.values(db.classes).filter(c => c.names.length);
-  out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — ${todo.length}개 수업 확인 · ${marked.length}개 수업에 ${marked.reduce((n, c) => n + c.names.length, 0)}명`
-    + (fail ? ` · ⚠️ ${fail}개 수업 못 읽음` : '')
-    + (!marked.length && _dbg ? ` · 🔎 진단: ${_dbg} · 담당자칸="${me}"` : '');
-  if (_dbg) console.log('[KIH] 진단:', _dbg, '담당자:', me);
-  applyStuMarks();
-}
-
-// 열린 수강생 창이 해당 수업 것이고 로딩이 끝났으면 반환
-function readyModal(title) {
-  const m = openStuModal();
-  const subj = m?.querySelector('.HybridTable td')?.textContent || '';
-  return m && subj.startsWith(title) && !m.querySelector('.ant-spin-spinning') ? m : null;
+  out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — 명단 ${days}일치 · ${marked.length}개 수업에 ${marked.reduce((n, c) => n + c.names.length, 0)}명`
+    + (missed.size ? ` · ⚠️ 시간표에서 못 찾은 수업: ${[...missed].slice(0, 5).join(', ')} (칸 예: "${evText(evs[0]).slice(0, 60)}")` : '')
+    + (!mine.length ? ` · 🔎 명단에 멘토 "${me}" 학생이 없음 (멘토 칸 예: ${[...modal.querySelectorAll('.day-roster__table tbody tr')].slice(0, 3).map(tr => [...tr.children].at(-3)?.textContent.trim()).join(', ')})` : '');
+  saveStuDB(); applyStuMarks();
 }
 
 // 수업 칸 구분용 키: 과목|강의실|강사 + 개강일
@@ -531,45 +546,9 @@ function applyStuMarks() {
 
 // 한 번 확인된 학생은 지우지 않고 합쳐서 저장 (빼려면 "↻ 전체")
 // ponytail: 수강 취소된 학생도 남음 — "↻ 전체"가 초기화 경로
-function saveClass(key, cnt, names) {
-  if (!names) return; // 목록을 못 읽었으면 기존 표시 유지
+function saveClass(key, names) {
   const old = stuDB().classes[key]?.names || [];
-  stuDB().classes[key] = { cnt, names: [...new Set([...old, ...names])] };
-  saveStuDB(); applyStuMarks();
-}
-
-// 수강생 창에서 담당 멘토가 나인 학생 이름 목록 (처음에 잘 되던 읽기 방식 그대로)
-async function collectRows(modal, re) {
-  const col = {}; // 헤더 제목 → 열 번호
-  modal.querySelectorAll('th[aria-colindex]').forEach(th => {
-    const t = th.querySelector('.k-column-title')?.textContent.trim();
-    if (t) col[t] = th.getAttribute('aria-colindex');
-  });
-  const cell = (tr, name) => tr.querySelector(`td[aria-colindex="${col[name]}"]`);
-  const scroller = modal.querySelector('.k-grid-content');
-  const names = new Set(), mentors = new Set();
-  let rows = 0;
-  // 가상 스크롤이라 화면에 보이는 행만 있음 → 끝까지 내리며 수집
-  for (let k = 0; k < 30; k++) {
-    modal.querySelectorAll('tr.k-master-row').forEach(tr => {
-      rows++;
-      // 멘토 칸이 "송성기2 | 1-1팀" 형식 → "|" 앞 이름만
-      const mentor = (cell(tr, '담당 멘토')?.textContent || '').split('|')[0].trim();
-      mentors.add(mentor || '(빈칸)');
-      if (!re.test(mentor)) return;
-      const name = cell(tr, '수강생')?.querySelectorAll('.b080108-link')[0]?.textContent.trim();
-      if (name) names.add(name);
-    });
-    if (!scroller || scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 2) break;
-    scroller.scrollTop += scroller.clientHeight;
-    await sleep(300);
-  }
-  if (!rows) { // 0명으로 저장하지 않음
-    _dbg ||= `수강생 창은 열렸는데 목록 줄 0개 (표 칸: ${Object.keys(col).join(',') || '없음'})`;
-    return null;
-  }
-  if (!names.size) _dbg ||= `목록 ${rows}줄 · 담당 멘토 칸 값 예: ${[...mentors].slice(0, 4).join(', ')} · 표 칸: ${Object.keys(col).join(',')}`;
-  return [...names];
+  stuDB().classes[key] = { names: [...new Set([...old, ...names])] };
 }
 
 // ── 내 이름 / 행 강조 ────────────────────────────────────────
