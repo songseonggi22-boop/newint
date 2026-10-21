@@ -435,8 +435,8 @@ const saveStuDB = () => chrome.storage.local.set({ stuMarks: stuDB() });
 // ponytail: "송성기"로 넣어도 "송성기2" 매칭
 const mentorRe = me => new RegExp('^' + me.replace(/\d+$/, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\d*$');
 
-// 명단 표 → [{ room, subject, start, teacher, names: [내 학생] }]
-function readRoster(modal, re) {
+// 명단 표 → [{ iso, room, subject, start, teacher, names: [내 학생] }]
+function readRoster(modal, re, iso) {
   const out = [];
   let cur = null;
   modal.querySelectorAll('.day-roster__table tbody tr').forEach(tr => {
@@ -444,7 +444,7 @@ function readRoster(modal, re) {
     if (lec) {
       const [room, ...subj] = (lec.querySelector('.day-roster__lecture-link')?.textContent || '').split(' · ');
       const [time = '', teacher = ''] = (lec.querySelector('div')?.textContent || '').split(' · ');
-      cur = { room: room.trim(), subject: subj.join(' · ').trim(), start: time.split('~')[0].trim(), teacher: teacher.trim(), names: [] };
+      cur = { iso, room: room.trim(), subject: subj.join(' · ').trim(), start: time.split('~')[0].trim(), teacher: teacher.trim(), names: [] };
       out.push(cur);
     }
     const td = [...tr.children].filter(c => !c.classList.contains('day-roster__lecture'));
@@ -454,16 +454,31 @@ function readRoster(modal, re) {
   return out;
 }
 
-// 명단의 수업 → 시간표 칸 찾기: 과목명 같은 칸 중에서 강의실·강사·시작시간으로 좁힘
+// 시간표 칸 정보: aria-label "과목 | 강의실 | 강사" + 본문 "개강일: … 종강일: … 요일: …" + 칸 세로 위치(시작 시간)
 const evText = ev => ((ev.getAttribute('aria-label') || '') + ' ' + ev.textContent).replace(/\s+/g, ' ');
+function evInfo(ev) {
+  const [title = '', room = ''] = (ev.getAttribute('aria-label') || '').split(' | ').map(s => s.trim());
+  const t = evText(ev), g = s => (t.match(new RegExp(s + ':\\s*(\\S+)')) || [])[1] || '';
+  // ponytail: 시간표 한 줄 = 30분, 1번째 줄 = 09:00 (실측). 접기 보기 등으로 줄 간격이 바뀌면 여기 조정
+  const row = parseInt(ev.closest('.rs-event-cell')?.style.gridRowStart) || 0;
+  return { title, room, from: g('개강일'), to: g('종강일'), days: g('요일'), row, min: row ? 540 + (row - 1) * 30 : -1 };
+}
+const toMin = hm => { const [h, m] = hm.split(':').map(Number); return h * 60 + (m || 0); };
+
+// 명단의 수업(그날) → 시간표 칸 1개: 강의실 같고, 그날이 개강~종강·요일 안에 들고, 과목명 같은 칸 중 시작 시간이 가장 가까운 칸
 function findEvents(evs, L) {
-  const same = evs.filter(ev => (ev.querySelector('.sch-title')?.textContent.trim() || '') === L.subject);
-  let cur = same.length ? same : evs.filter(ev => evText(ev).includes(L.subject));
-  for (const f of [t => t.includes(L.room), t => !L.teacher || t.includes(L.teacher), t => !L.start || t.includes(L.start)]) {
-    const n = cur.filter(ev => f(evText(ev)));
-    if (n.length) cur = n;
+  const dow = '일월화수목금토'[new Date(L.iso + 'T00:00').getDay()];
+  const base = s => s.split('/')[0].trim();
+  let cur = evs.map(ev => ({ ev, i: evInfo(ev) }))
+    .filter(({ i }) => i.room === L.room && (!i.from || (i.from <= L.iso && L.iso <= i.to)) && (!i.days || i.days.includes(dow)));
+  const exact = cur.filter(({ i }) => i.title === L.subject);
+  cur = exact.length ? exact : cur.filter(({ i }) => base(i.title) === base(L.subject));
+  if (cur.length > 1 && L.start) {
+    const d = c => c.i.min < 0 ? 1e9 : Math.abs(c.i.min - toMin(L.start));
+    const best = Math.min(...cur.map(d));
+    cur = cur.filter(c => d(c) === best);
   }
-  return cur;
+  return cur.map(c => c.ev);
 }
 
 // full=true(↻ 전체): 저장된 표시를 지우고 다시
@@ -498,7 +513,7 @@ async function doMyStudents(full) {
       await waitFor(() => !modal.querySelector('.ant-spin-spinning') && modal.querySelector('.day-roster__summary')?.textContent !== before, 4000);
       await sleep(300);
     }
-    lectures.push(...readRoster(modal, re));
+    lectures.push(...readRoster(modal, re, iso));
     days++;
   }
   modal.querySelector('.ant-modal-close')?.click();
@@ -519,9 +534,10 @@ async function doMyStudents(full) {
   saveStuDB(); applyStuMarks();
 }
 
-// 수업 칸 구분용 키: 과목|강의실|강사 + 개강일
+// 수업 칸 구분용 키: 과목|강의실|강사 + 개강~종강·요일 + 칸 위치 (같은 과목·같은 개강일 칸이 여러 개라 위치까지 넣음)
 function eventKey(ev) {
-  return (ev.getAttribute('aria-label') || '') + '|' + (ev.querySelector('.sch-row .val')?.textContent.trim() || '');
+  const i = evInfo(ev);
+  return [ev.getAttribute('aria-label') || '', i.from, i.to, i.days, i.row].join('|');
 }
 
 // 시간표 각 수업 칸 맨 위에 "👤 내 학생 이름" 표시 (인트라넷 요소는 안 건드리고 추가만)
