@@ -253,9 +253,9 @@ function doContact() {
   const out     = S.getElementById('r-contact');
   if (!isoDate) { out.textContent = '날짜를 선택해주세요.'; return; }
 
-  // 메뉴 글자 말고, 실제 검색구분 셀렉트가 있는지로 판단
-  const onContactPage = q('.ant-select-selection-item')
-    .some(el => ['문의자','결과메모'].includes(labelOf(el)));
+  // 메뉴 글자 말고, 실제 검색어·멘토선택 칸이 있는지로 판단 (도메인별·멘토별 둘 다 OK)
+  const onContactPage = q('input[placeholder="검색어를 입력해 주세요"]').length > 0
+    && q('input[placeholder="멘토선택"]').length > 0;
   if (onContactPage) {
     out.textContent = '⏳ 필터 적용 중…';
     applyFilters(isoDate, mentor, out);
@@ -270,8 +270,8 @@ function doContact() {
 const STEP = 800;
 
 function applyFilters(isoDate, mentor, out) {
-  // ① 문의자 → 결과메모
-  selectChange('문의자', '결과메모', () => {
+  // ① 검색구분(빈칸 "검색항목 선택" 또는 문의자) → 결과메모
+  selectChange(['검색항목 선택', '문의자'], '결과메모', () => {
     // ② 메인담당 → 메인+서브
     selectChange('메인담당', '메인+서브', () => {
       setTimeout(() => {
@@ -301,8 +301,9 @@ function applyFilters(isoDate, mentor, out) {
 
 // Ant Design Select 값 변경 (currentLabel → targetLabel)
 function selectChange(currentLabel, targetLabel, cb) {
-  const items = q('.ant-select-selection-item');
-  const span = items.find(el => labelOf(el) === currentLabel);
+  const cur = [].concat(currentLabel);
+  const items = q('.ant-select-selection-item, .ant-select-selection-placeholder');
+  const span = items.find(el => cur.includes(labelOf(el)));
 
   if (!span) {
     // 이미 바뀌어 있으면 정상 — 그냥 다음 단계로
