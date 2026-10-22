@@ -104,6 +104,7 @@ function buildPanel() {
       <div id="tabs">
         <button class="tab on" data-p="contact">📞 컨택조회</button>
         <button class="tab"    data-p="schedule">📅 시간표</button>
+        <button class="tab"    data-p="jn">📝 일지</button>
         <button class="tab"    data-p="settings">⚙️ 설정</button>
         <button class="tab"    data-p="bulk">🔒 일괄</button>
       </div>
@@ -140,8 +141,13 @@ function buildPanel() {
           <button class="sm g" id="btn-mystu">👥 내 수강생 보기</button>
           <button class="sm" id="btn-mystu-all" title="저장된 표시를 지우고 전부 다시 확인">↻ 전체</button>
         </div>
-        <button class="sm" id="btn-jn" style="margin-top:6px;width:100%;" title="내 학생 있는 수업의 수강생 창을 하나씩 열어 일지 N 확인">📝 일지 확인</button>
         <div id="r-mystu" class="result"></div>
+      </div>
+      <div id="pane-jn" class="pane">
+        <p class="desc">시간표관리 화면에서 내 학생 있는 수업의 수강생 창을 하나씩 열어<br>일지 종류별 N(최근 4일 새 일지) 없는 학생을 모읍니다.</p>
+        <button class="primary" id="btn-jn">📝 일지 확인</button>
+        <div id="r-jn" class="result"></div>
+        <div id="jn-list"></div>
       </div>
       <div id="pane-settings" class="pane">
         <label>내 이름 <span class="hint">(내 담당 행 굵게)</span></label>
@@ -197,6 +203,7 @@ function buildPanel() {
   S.getElementById('btn-mystu').addEventListener('click', () => doMyStudents(false));
   S.getElementById('btn-mystu-all').addEventListener('click', () => doMyStudents(true));
   S.getElementById('btn-jn').addEventListener('click', doJournalScan);
+  renderJn();
   S.getElementById('i-ym').addEventListener('change', e => loadHol(e.target.value));
   S.getElementById('btn-pw').addEventListener('click', unlockBulk);
   S.getElementById('i-pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlockBulk(); });
@@ -534,7 +541,7 @@ async function doMyStudents(full) {
   out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — 명단 ${days}일치 · ${marked.length}개 수업에 ${marked.reduce((n, c) => n + c.names.length, 0)}명`
     + (missed.size ? ` · ⚠️ 시간표에서 못 찾은 수업: ${[...missed].slice(0, 5).join(', ')} (칸 예: "${evText(evs[0]).slice(0, 60)}")` : '')
     + (!mine.length ? ` · 🔎 명단에 멘토 "${me}" 학생이 없음 (멘토 칸 예: ${[...modal.querySelectorAll('.day-roster__table tbody tr')].slice(0, 3).map(tr => [...tr.children].at(-3)?.textContent.trim()).join(', ')})` : '');
-  saveStuDB(); applyStuMarks();
+  saveStuDB(); applyStuMarks(); renderJn();
 }
 
 // 수업 칸 구분용 키: 과목|강의실|강사 + 개강~종강·요일 + 칸 위치 (같은 과목·같은 개강일 칸이 여러 개라 위치까지 넣음)
@@ -547,87 +554,61 @@ function eventKey(ev) {
 function applyStuMarks() {
   const classes = window._kihSD?.classes;
   if (!classes) return;
-  const jn = window._kihSD.jn || {}, today = toISO(new Date());
   document.querySelectorAll('.rs-event').forEach(ev => {
     const names = classes[eventKey(ev)]?.names || [];
     let tag = ev.querySelector('.__kihstu');
-    if (!names.length) { tag?.remove(); return; }
-    // 학생별 일지 상태: 오늘 확인한 것만 (N은 "최근 4일"이라 날이 바뀌면 다시 확인)
-    const st = n => jn[n]?.d === today ? jn[n].k : '';
-    const key = names.map(n => n + ':' + st(n)).join(',');
-    if (tag?.dataset.k === key) return;
+    const text = names.length ? `👤 ${names.join(', ')}` : '';
+    if (!text) { tag?.remove(); return; }
+    if (tag?.textContent === text) return;
     if (!tag) {
       tag = document.createElement('div');
       tag.className = '__kihstu';
-      tag.style.cssText = 'margin:0 0 4px;padding:2px 6px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:normal;line-height:1.5;';
+      tag.style.cssText = 'margin:0 0 4px;padding:2px 6px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:normal;line-height:1.4;';
       ev.prepend(tag);
     }
-    tag.dataset.k = key;
-    tag.replaceChildren('👤', ...names.map(n => {
-      const s = document.createElement('span');
-      s.style.cssText = 'display:inline-block;margin-right:6px;';
-      const k = st(n);
-      s.append(' ' + n, ...(k ? JN_TYPES.map((t, x) => {
-        const b = document.createElement('span');
-        b.textContent = t[0];
-        b.title = `${t}일지 ${k[x] === '1' ? 'N 있음' : 'N 없음'}`;
-        b.style.cssText = `margin-left:1px;padding:0 2px;border-radius:3px;font-size:10px;${k[x] === '1' ? 'background:#16a34a;color:#fff' : 'background:#fecaca;color:#991b1b'}`;
-        return b;
-      }) : []));
-      return s;
-    }));
+    tag.textContent = text;
   });
 }
 
-// 수강생 창: 내 학생 행마다 일지 종류별(학사·개강·교육·취업·환불) N(최근 4일 새 일지) 있음/없음 + 표 위 종류별 요약
+// 수강생 창이 열려 있으면 내 학생의 일지 종류별 N(최근 4일 새 일지) 여부를 학생별로 기록 (화면엔 안 붙임) → 📝 일지 탭에 표시
 const JN_TYPES = ['학사', '개강', '교육', '취업', '환불'];
-const chip = (txt, on, big) => {
-  const s = document.createElement('span');
-  s.textContent = txt;
-  s.style.cssText = `display:inline-block;margin:0 3px 2px 0;padding:${big ? '2px 8px' : '0 5px'};border-radius:8px;font-size:${big ? 12 : 11}px;font-weight:700;`
-    + (on ? 'background:#dcfce7;color:#166534' : 'background:#fee2e2;color:#991b1b');
-  return s;
-};
 function applyJournalCheck() {
-  const me = window._kihMe;
+  const me = window._kihMe, re = me && mentorRe(me), d = toISO(new Date());
   let dirty = false;
-  document.querySelectorAll('.b080108-student-grid').forEach(grid => {
-    const re = me && mentorRe(me);
-    const miss = Object.fromEntries(JN_TYPES.map(t => [t, []]));
-    let total = 0;
-    grid.querySelectorAll('tr.k-master-row').forEach(tr => {
-      const mine = tr.querySelector('.b080108-relation--mine')
-        || (re && [...tr.cells].some(td => re.test(td.textContent.split('|')[0].trim())));
-      const cell = tr.querySelector('.b080108-student-cell');
-      let tag = cell?.querySelector('.__kihjn');
-      if (!mine || !cell) { tag?.remove(); return; }
-      total++;
-      const name = cell.querySelector('.b080108-link')?.textContent.trim() || '';
-      const has = new Set([...tr.querySelectorAll('.b080108-journal__btn--new')].map(b => b.querySelector('span')?.textContent.trim()));
-      JN_TYPES.forEach(t => has.has(t) || miss[t].push(name));
-      const key = JN_TYPES.map(t => +has.has(t)).join('');
-      // 시간표 칸에도 보이게 학생별로 저장 (오늘 확인한 것만 색으로 표시)
-      const jn = (stuDB().jn ||= {}), d = toISO(new Date());
-      if (name && (jn[name]?.k !== key || jn[name]?.d !== d)) { jn[name] = { k: key, d }; dirty = true; }
-      if (tag?.dataset.k === key) return;
-      if (!tag) { tag = document.createElement('div'); tag.className = '__kihjn'; cell.prepend(tag); }
-      tag.dataset.k = key;
-      tag.replaceChildren(...JN_TYPES.map(t => chip(`${t}${has.has(t) ? '✅' : '❌'}`, has.has(t))));
-    });
-    let sum = grid.previousElementSibling?.classList.contains('__kihjsum') ? grid.previousElementSibling : null;
-    if (!total) { sum?.remove(); return; }
-    const key = total + JSON.stringify(miss);
-    if (sum?.dataset.k === key) return;
-    if (!sum) {
-      sum = document.createElement('div'); sum.className = '__kihjsum';
-      sum.style.cssText = 'margin:6px 0;padding:6px 10px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:13px;font-weight:700;line-height:1.8;';
-      grid.before(sum);
-    }
-    sum.dataset.k = key;
-    sum.replaceChildren(`👤 내 학생 ${total}명 (N = 최근 4일 새 일지)`, document.createElement('br'),
-      ...JN_TYPES.map(t => chip(`${t} ${total - miss[t].length}/${total}${miss[t].length ? ' · 없음: ' + miss[t].join(', ') : ''}`, !miss[t].length, true)));
+  document.querySelectorAll('.b080108-student-grid tr.k-master-row').forEach(tr => {
+    const mine = tr.querySelector('.b080108-relation--mine')
+      || (re && [...tr.cells].some(td => re.test(td.textContent.split('|')[0].trim())));
+    const name = tr.querySelector('.b080108-student-cell .b080108-link')?.textContent.trim();
+    if (!mine || !name) return;
+    const has = new Set([...tr.querySelectorAll('.b080108-journal__btn--new')].map(b => b.querySelector('span')?.textContent.trim()));
+    const k = JN_TYPES.map(t => +has.has(t)).join('');
+    const jn = (stuDB().jn ||= {});
+    if (jn[name]?.k !== k || jn[name]?.d !== d) { jn[name] = { k, d }; dirty = true; }
   });
-  if (dirty) { saveStuDB(); applyStuMarks(); }
+  if (dirty) { saveStuDB(); renderJn(); }
+}
+
+// 📝 일지 탭: 종류별로 N 없는 학생 이름 (오늘 확인한 것만 — N은 "최근 4일"이라 날이 바뀌면 다시 확인)
+function renderJn() {
+  const box = S?.getElementById('jn-list');
+  if (!box) return;
+  const db = window._kihSD || {}, jn = db.jn || {}, today = toISO(new Date());
+  const all = [...new Set(Object.values(db.classes || {}).flatMap(c => c.names))].sort();
+  const done = all.filter(n => jn[n]?.d === today), unchecked = all.filter(n => jn[n]?.d !== today);
+  const line = (label, names, color) => {
+    const p = document.createElement('div');
+    p.style.cssText = `margin:4px 0;padding:6px 8px;border-radius:6px;font-size:12px;line-height:1.5;background:${color[0]};color:${color[1]};`;
+    const b = document.createElement('b'); b.textContent = label;
+    p.append(b, names.length ? ' ' + names.join(', ') : '');
+    return p;
+  };
+  box.replaceChildren(
+    ...(all.length ? [] : [line('먼저 📅 시간표 탭에서 👥 내 수강생 보기를 실행하세요.', [], ['#f3f4f6', '#374151'])]),
+    ...(done.length ? JN_TYPES.map((t, x) => {
+      const miss = done.filter(n => jn[n].k[x] !== '1');
+      return miss.length ? line(`${t} ❌ ${miss.length}명:`, miss, ['#fee2e2', '#991b1b']) : line(`${t} ✅ 모두 N 있음`, [], ['#dcfce7', '#166534']);
+    }) : []),
+    ...(unchecked.length && all.length ? [line(`오늘 미확인 ${unchecked.length}명:`, unchecked, ['#f3f4f6', '#6b7280'])] : []));
 }
 
 // 📝 일지 확인: 내 학생 있는 수업 칸을 하나씩 눌러 "수강생" 창을 열고 → 위 applyJournalCheck가 기록 → 닫기
@@ -638,11 +619,11 @@ const stuModal = () => [...document.querySelectorAll('.ant-modal-wrap')]
 const visibleText = (labels) => [...document.querySelectorAll('button,a,li,[role=menuitem]')]
   .find(e => e.offsetParent && labels.includes(e.textContent.replace(/\s+/g, '')));
 async function doJournalScan() {
-  const btn = S.getElementById('btn-jn'), out = S.getElementById('r-mystu');
+  const btn = S.getElementById('btn-jn'), out = S.getElementById('r-jn');
   if (_jnRun) { _jnRun = false; return; }
   const classes = window._kihSD?.classes || {};
   const evs = [...document.querySelectorAll('.rs-event')].filter(ev => classes[eventKey(ev)]?.names.length);
-  if (!evs.length) { out.textContent = '먼저 👥 내 수강생 보기를 실행해주세요.'; return; }
+  if (!evs.length) { out.textContent = '시간표관리 화면에서, 먼저 📅 시간표 탭의 👥 내 수강생 보기를 실행해주세요.'; return; }
   _jnRun = true; btn.textContent = '⏹ 중지';
   let done = 0, fail = '';
   for (const ev of evs) {
@@ -667,7 +648,8 @@ async function doJournalScan() {
   const stopped = !_jnRun;
   _jnRun = false; btn.textContent = '📝 일지 확인';
   out.textContent = fail ? `⚠️ ${done}/${evs.length}개 확인 후 멈춤 — ${fail}`
-    : `${stopped ? '⏹ 중지됨' : '✅ 일지 확인 완료'} — ${done}/${evs.length}개 수업 · 시간표 칸에 학·개·교·취·환 표시 (초록=N 있음, 빨강=없음)`;
+    : `${stopped ? '⏹ 중지됨' : '✅ 일지 확인 완료'} — ${done}/${evs.length}개 수업`;
+  renderJn();
 }
 
 // 한 번 확인된 학생은 지우지 않고 합쳐서 저장 (빼려면 "↻ 전체")
