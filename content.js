@@ -140,6 +140,7 @@ function buildPanel() {
           <button class="sm g" id="btn-mystu">👥 내 수강생 보기</button>
           <button class="sm" id="btn-mystu-all" title="저장된 표시를 지우고 전부 다시 확인">↻ 전체</button>
         </div>
+        <button class="sm" id="btn-jn" style="margin-top:6px;width:100%;" title="내 학생 있는 수업의 수강생 창을 하나씩 열어 일지 N 확인">📝 일지 확인</button>
         <div id="r-mystu" class="result"></div>
       </div>
       <div id="pane-settings" class="pane">
@@ -195,6 +196,7 @@ function buildPanel() {
   S.getElementById('btn-save').addEventListener('click', saveName);
   S.getElementById('btn-mystu').addEventListener('click', () => doMyStudents(false));
   S.getElementById('btn-mystu-all').addEventListener('click', () => doMyStudents(true));
+  S.getElementById('btn-jn').addEventListener('click', doJournalScan);
   S.getElementById('i-ym').addEventListener('change', e => loadHol(e.target.value));
   S.getElementById('btn-pw').addEventListener('click', unlockBulk);
   S.getElementById('i-pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlockBulk(); });
@@ -545,19 +547,35 @@ function eventKey(ev) {
 function applyStuMarks() {
   const classes = window._kihSD?.classes;
   if (!classes) return;
+  const jn = window._kihSD.jn || {}, today = toISO(new Date());
   document.querySelectorAll('.rs-event').forEach(ev => {
     const names = classes[eventKey(ev)]?.names || [];
     let tag = ev.querySelector('.__kihstu');
-    const text = names.length ? `👤 ${names.join(', ')}` : '';
-    if (!text) { tag?.remove(); return; }
-    if (tag?.textContent === text) return;
+    if (!names.length) { tag?.remove(); return; }
+    // 학생별 일지 상태: 오늘 확인한 것만 (N은 "최근 4일"이라 날이 바뀌면 다시 확인)
+    const st = n => jn[n]?.d === today ? jn[n].k : '';
+    const key = names.map(n => n + ':' + st(n)).join(',');
+    if (tag?.dataset.k === key) return;
     if (!tag) {
       tag = document.createElement('div');
       tag.className = '__kihstu';
-      tag.style.cssText = 'margin:0 0 4px;padding:2px 6px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:normal;line-height:1.4;';
+      tag.style.cssText = 'margin:0 0 4px;padding:2px 6px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:normal;line-height:1.5;';
       ev.prepend(tag);
     }
-    tag.textContent = text;
+    tag.dataset.k = key;
+    tag.replaceChildren('👤', ...names.map(n => {
+      const s = document.createElement('span');
+      s.style.cssText = 'display:inline-block;margin-right:6px;';
+      const k = st(n);
+      s.append(' ' + n, ...(k ? JN_TYPES.map((t, x) => {
+        const b = document.createElement('span');
+        b.textContent = t[0];
+        b.title = `${t}일지 ${k[x] === '1' ? 'N 있음' : 'N 없음'}`;
+        b.style.cssText = `margin-left:1px;padding:0 2px;border-radius:3px;font-size:10px;${k[x] === '1' ? 'background:#16a34a;color:#fff' : 'background:#fecaca;color:#991b1b'}`;
+        return b;
+      }) : []));
+      return s;
+    }));
   });
 }
 
@@ -572,6 +590,7 @@ const chip = (txt, on, big) => {
 };
 function applyJournalCheck() {
   const me = window._kihMe;
+  let dirty = false;
   document.querySelectorAll('.b080108-student-grid').forEach(grid => {
     const re = me && mentorRe(me);
     const miss = Object.fromEntries(JN_TYPES.map(t => [t, []]));
@@ -587,6 +606,9 @@ function applyJournalCheck() {
       const has = new Set([...tr.querySelectorAll('.b080108-journal__btn--new')].map(b => b.querySelector('span')?.textContent.trim()));
       JN_TYPES.forEach(t => has.has(t) || miss[t].push(name));
       const key = JN_TYPES.map(t => +has.has(t)).join('');
+      // 시간표 칸에도 보이게 학생별로 저장 (오늘 확인한 것만 색으로 표시)
+      const jn = (stuDB().jn ||= {}), d = toISO(new Date());
+      if (name && (jn[name]?.k !== key || jn[name]?.d !== d)) { jn[name] = { k: key, d }; dirty = true; }
       if (tag?.dataset.k === key) return;
       if (!tag) { tag = document.createElement('div'); tag.className = '__kihjn'; cell.prepend(tag); }
       tag.dataset.k = key;
@@ -605,6 +627,47 @@ function applyJournalCheck() {
     sum.replaceChildren(`👤 내 학생 ${total}명 (N = 최근 4일 새 일지)`, document.createElement('br'),
       ...JN_TYPES.map(t => chip(`${t} ${total - miss[t].length}/${total}${miss[t].length ? ' · 없음: ' + miss[t].join(', ') : ''}`, !miss[t].length, true)));
   });
+  if (dirty) { saveStuDB(); applyStuMarks(); }
+}
+
+// 📝 일지 확인: 내 학생 있는 수업 칸을 하나씩 눌러 "수강생" 창을 열고 → 위 applyJournalCheck가 기록 → 닫기
+// ponytail: 수강생 창 표는 화면에 보이는 행만 그려짐(가상 스크롤) — 한 반 20명 넘으면 아래쪽 학생은 빠질 수 있음
+let _jnRun = false;
+const stuModal = () => [...document.querySelectorAll('.ant-modal-wrap')]
+  .find(w => w.style.display !== 'none' && w.querySelector('.ant-modal-title')?.textContent.trim() === '수강생');
+const visibleText = (labels) => [...document.querySelectorAll('button,a,li,[role=menuitem]')]
+  .find(e => e.offsetParent && labels.includes(e.textContent.replace(/\s+/g, '')));
+async function doJournalScan() {
+  const btn = S.getElementById('btn-jn'), out = S.getElementById('r-mystu');
+  if (_jnRun) { _jnRun = false; return; }
+  const classes = window._kihSD?.classes || {};
+  const evs = [...document.querySelectorAll('.rs-event')].filter(ev => classes[eventKey(ev)]?.names.length);
+  if (!evs.length) { out.textContent = '먼저 👥 내 수강생 보기를 실행해주세요.'; return; }
+  _jnRun = true; btn.textContent = '⏹ 중지';
+  let done = 0, fail = '';
+  for (const ev of evs) {
+    if (!_jnRun) break;
+    out.textContent = `⏳ 일지 확인 중… (${done + 1}/${evs.length})`;
+    ev.click();
+    const b = await waitFor(() => visibleText(['수강생보기']), 3000);
+    if (!b) {
+      fail = `수업 칸을 눌러도 "수강생보기"가 안 보임 (보이는 버튼: ${[...document.querySelectorAll('.ant-popover button,.ant-dropdown li,.ant-modal-wrap button,.ant-drawer-open button')].filter(e => e.offsetParent).map(e => e.textContent.trim()).filter(Boolean).slice(0, 8).join(', ') || '없음'})`;
+      break;
+    }
+    b.click();
+    const m = await waitFor(stuModal, 5000);
+    if (!m) { fail = '"수강생" 창이 안 열림'; break; }
+    await waitFor(() => m.querySelector('tr.k-master-row') && !m.querySelector('.ant-spin-spinning'), 4000);
+    await sleep(300);
+    applyJournalCheck();
+    m.querySelector('.ant-modal-close')?.click();
+    await waitFor(() => !stuModal(), 2000);
+    done++;
+  }
+  const stopped = !_jnRun;
+  _jnRun = false; btn.textContent = '📝 일지 확인';
+  out.textContent = fail ? `⚠️ ${done}/${evs.length}개 확인 후 멈춤 — ${fail}`
+    : `${stopped ? '⏹ 중지됨' : '✅ 일지 확인 완료'} — ${done}/${evs.length}개 수업 · 시간표 칸에 학·개·교·취·환 표시 (초록=N 있음, 빨강=없음)`;
 }
 
 // 한 번 확인된 학생은 지우지 않고 합쳐서 저장 (빼려면 "↻ 전체")
