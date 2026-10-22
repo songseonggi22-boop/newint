@@ -596,6 +596,12 @@ const JN_TYPES = ['학사', '개강', '교육', '취업', '환불'];
 function applyJournalCheck() {
   const me = window._kihMe, re = me && mentorRe(me), d = toISO(new Date());
   let dirty = false;
+  // 같은 날엔 N이 생기기만 함(OR) → 수강생 창이 저장 전 상태로 남아 있어도 방금 쓴 N이 안 지워짐
+  const put = (name, k) => {
+    const jn = (stuDB().jn ||= {}), o = jn[name]?.d === d ? jn[name].k : '00000';
+    k = [...k].map((b, x) => +(b === '1' || o[x] === '1')).join('');
+    if (jn[name]?.k !== k || jn[name]?.d !== d) { jn[name] = { k, d }; dirty = true; }
+  };
   document.querySelectorAll('.b080108-student-grid tr.k-master-row').forEach(tr => {
     const mine = tr.querySelector('.b080108-relation--mine')
       || (re && [...tr.cells].some(td => re.test(td.textContent.split('|')[0].trim())));
@@ -603,8 +609,19 @@ function applyJournalCheck() {
     if (!mine || !name) return;
     const has = new Set([...tr.querySelectorAll('.b080108-journal__btn--new')].map(b => b.querySelector('span')?.textContent.trim()));
     const k = JN_TYPES.map(t => +has.has(t)).join('');
-    const jn = (stuDB().jn ||= {});
-    if (jn[name]?.k !== k || jn[name]?.d !== d) { jn[name] = { k, d }; dirty = true; }
+    put(name, k);
+  });
+  // 일지 창("학사일지 - 유하진 (49220)")이 열려 있으면: 탭 머리의 N 뱃지 + 지금 탭 맨 위 기록이 오늘이면 N (저장 직후 바로 반영)
+  document.querySelectorAll('.ant-modal-wrap').forEach(w => {
+    if (w.style.display === 'none') return;
+    const name = w.querySelector('.ant-modal-title')?.textContent.trim().match(/^(?:학사|개강|교육|취업|환불)일지 - (.+?) \(\d+\)$/)?.[1];
+    if (!name) return;
+    const tabs = JN_TYPES.map((t, x) => w.querySelector(`.ant-tabs-tab[data-node-key="T${x + 1}"]`));
+    if (tabs.some(t => !t)) return;
+    const pane = w.querySelector('.ant-tabs-tabpane-active');
+    const top = [...(pane?.querySelectorAll('th') || [])].find(th => th.textContent.trim() === '작성일')?.nextElementSibling?.textContent.trim() || '';
+    const k = tabs.map(t => +(!!t.querySelector('sup[title="N"]') || (t.classList.contains('ant-tabs-tab-active') && top.startsWith(d)))).join('');
+    put(name, k);
   });
   if (dirty) { saveStuDB(); applyStuMarks(); }
 }
