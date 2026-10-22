@@ -561,6 +561,43 @@ function applyStuMarks() {
   });
 }
 
+// 수강생 창: 내 학생 행마다 일지 N(최근 4일 새 일지) 있음/없음 표시 + 표 위에 요약
+// ponytail: 일지 종류 상관없이 N 하나라도 있으면 ✅. 학사일지만 볼 거면 data-tab="T1"로 좁히기
+function applyJournalCheck() {
+  const me = window._kihMe;
+  document.querySelectorAll('.b080108-student-grid').forEach(grid => {
+    const re = me && mentorRe(me);
+    const ok = [], miss = [];
+    grid.querySelectorAll('tr.k-master-row').forEach(tr => {
+      const mine = tr.querySelector('.b080108-relation--mine')
+        || (re && [...tr.cells].some(td => re.test(td.textContent.split('|')[0].trim())));
+      const cell = tr.querySelector('.b080108-student-cell');
+      let tag = cell?.querySelector('.__kihjn');
+      if (!mine || !cell) { tag?.remove(); return; }
+      const name = cell.querySelector('.b080108-link')?.textContent.trim() || '';
+      const news = [...tr.querySelectorAll('.b080108-journal__btn--new')].map(b => b.querySelector('span')?.textContent.trim());
+      (news.length ? ok : miss).push(name);
+      const text = news.length ? `✅N ${news.join('·')}` : '❌N 없음';
+      if (tag?.textContent === text) return;
+      if (!tag) { tag = document.createElement('span'); tag.className = '__kihjn'; cell.prepend(tag); }
+      tag.textContent = text;
+      tag.style.cssText = `margin-right:4px;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;${news.length ? 'background:#dcfce7;color:#166534' : 'background:#fee2e2;color:#991b1b'}`;
+    });
+    let sum = grid.previousElementSibling?.classList.contains('__kihjsum') ? grid.previousElementSibling : null;
+    const text = ok.length + miss.length
+      ? `👤 내 학생 ${ok.length + miss.length}명 · ✅N ${ok.length} · ❌N ${miss.length}${miss.length ? ' — ' + miss.join(', ') : ''}`
+      : '';
+    if (!text) { sum?.remove(); return; }
+    if (sum?.textContent === text) return;
+    if (!sum) {
+      sum = document.createElement('div'); sum.className = '__kihjsum';
+      sum.style.cssText = 'margin:6px 0;padding:6px 10px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:13px;font-weight:700;';
+      grid.before(sum);
+    }
+    sum.textContent = text;
+  });
+}
+
 // 한 번 확인된 학생은 지우지 않고 합쳐서 저장 (빼려면 "↻ 전체")
 // ponytail: 수강 취소된 학생도 남음 — "↻ 전체"가 초기화 경로
 function saveClass(key, names) {
@@ -818,7 +855,7 @@ let _t;
 function observe() {
   new MutationObserver(() => {
     clearTimeout(_t);
-    _t = setTimeout(() => { applyMyRow(); applyBadges(); applyStuMarks(); }, 600); // 뱃지가 마지막 → 재컨택 노랑이 초록에 안 가려짐
+    _t = setTimeout(() => { applyMyRow(); applyBadges(); applyStuMarks(); applyJournalCheck(); }, 600); // 뱃지가 마지막 → 재컨택 노랑이 초록에 안 가려짐
   }).observe(document.body, { childList: true, subtree: true });
 }
 
