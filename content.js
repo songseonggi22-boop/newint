@@ -104,7 +104,6 @@ function buildPanel() {
       <div id="tabs">
         <button class="tab on" data-p="contact">📞 컨택조회</button>
         <button class="tab"    data-p="schedule">📅 시간표</button>
-        <button class="tab"    data-p="jn">📝 일지</button>
         <button class="tab"    data-p="settings">⚙️ 설정</button>
         <button class="tab"    data-p="bulk">🔒 일괄</button>
       </div>
@@ -142,12 +141,12 @@ function buildPanel() {
           <button class="sm" id="btn-mystu-all" title="저장된 표시를 지우고 전부 다시 확인">↻ 전체</button>
         </div>
         <div id="r-mystu" class="result"></div>
-      </div>
-      <div id="pane-jn" class="pane">
-        <p class="desc">시간표관리 화면에서 내 학생 있는 수업의 수강생 창을 하나씩 열어<br>일지 종류별 N(최근 4일 새 일지) 없는 학생을 모읍니다.</p>
-        <button class="primary" id="btn-jn">📝 일지 확인</button>
+        <div class="row" style="margin-top:6px;align-items:center;gap:10px;">
+          <span style="display:flex;align-items:center;gap:3px;font-size:12px;"><input type="checkbox" id="c-stu" style="width:auto;margin:0;"/>👤 학생</span>
+          <span style="display:flex;align-items:center;gap:3px;font-size:12px;"><input type="checkbox" id="c-jn" style="width:auto;margin:0;"/>📝 일지</span>
+          <button class="sm" id="btn-jn" title="내 학생 있는 수업의 수강생 창을 하나씩 열어 일지 N 확인" style="margin-left:auto;">📝 일지 확인</button>
+        </div>
         <div id="r-jn" class="result"></div>
-        <div id="jn-list"></div>
       </div>
       <div id="pane-settings" class="pane">
         <label>내 이름 <span class="hint">(내 담당 행 굵게)</span></label>
@@ -203,7 +202,12 @@ function buildPanel() {
   S.getElementById('btn-mystu').addEventListener('click', () => doMyStudents(false));
   S.getElementById('btn-mystu-all').addEventListener('click', () => doMyStudents(true));
   S.getElementById('btn-jn').addEventListener('click', doJournalScan);
-  renderJn();
+  // 시간표 칸 표시 켜기/끄기 (전체 칸 한 번에): 👤 학생 이름 / 📝 학·개·교·취·환 일지 N
+  [['c-stu', 'hideStu'], ['c-jn', 'hideJn']].forEach(([id, k]) => {
+    const c = S.getElementById(id);
+    c.checked = !window._kihSD?.[k];
+    c.addEventListener('change', () => { stuDB()[k] = !c.checked; saveStuDB(); applyStuMarks(); });
+  });
   S.getElementById('i-ym').addEventListener('change', e => loadHol(e.target.value));
   S.getElementById('btn-pw').addEventListener('click', unlockBulk);
   S.getElementById('i-pw').addEventListener('keydown', e => { if (e.key === 'Enter') unlockBulk(); });
@@ -541,7 +545,7 @@ async function doMyStudents(full) {
   out.textContent = `${stopped ? '⏹ 중지됨' : '✅ 완료'} — 명단 ${days}일치 · ${marked.length}개 수업에 ${marked.reduce((n, c) => n + c.names.length, 0)}명`
     + (missed.size ? ` · ⚠️ 시간표에서 못 찾은 수업: ${[...missed].slice(0, 5).join(', ')} (칸 예: "${evText(evs[0]).slice(0, 60)}")` : '')
     + (!mine.length ? ` · 🔎 명단에 멘토 "${me}" 학생이 없음 (멘토 칸 예: ${[...modal.querySelectorAll('.day-roster__table tbody tr')].slice(0, 3).map(tr => [...tr.children].at(-3)?.textContent.trim()).join(', ')})` : '');
-  saveStuDB(); applyStuMarks(); renderJn();
+  saveStuDB(); applyStuMarks();
 }
 
 // 수업 칸 구분용 키: 과목|강의실|강사 + 개강~종강·요일 + 칸 위치 (같은 과목·같은 개강일 칸이 여러 개라 위치까지 넣음)
@@ -550,27 +554,44 @@ function eventKey(ev) {
   return [ev.getAttribute('aria-label') || '', i.from, i.to, i.days, i.row].join('|');
 }
 
-// 시간표 각 수업 칸 맨 위에 "👤 내 학생 이름" 표시 (인트라넷 요소는 안 건드리고 추가만)
+// 시간표 각 수업 칸 맨 위에 "👤 내 학생 이름 [학][개][교][취][환]" 표시 (인트라넷 요소는 안 건드리고 추가만)
+// 패널 체크: hideStu = 표시 전부 끔, hideJn = 이름만 (일지 글자 끔)
 function applyStuMarks() {
-  const classes = window._kihSD?.classes;
+  const db = window._kihSD, classes = db?.classes;
   if (!classes) return;
+  const jn = db.jn || {}, today = toISO(new Date());
+  // N은 "최근 4일" 기준이라 오늘 확인한 것만 색으로 (확인 전엔 이름만)
+  const st = n => !db.hideJn && jn[n]?.d === today ? jn[n].k : '';
   document.querySelectorAll('.rs-event').forEach(ev => {
-    const names = classes[eventKey(ev)]?.names || [];
+    const names = db.hideStu ? [] : classes[eventKey(ev)]?.names || [];
     let tag = ev.querySelector('.__kihstu');
-    const text = names.length ? `👤 ${names.join(', ')}` : '';
-    if (!text) { tag?.remove(); return; }
-    if (tag?.textContent === text) return;
+    if (!names.length) { tag?.remove(); return; }
+    const key = names.map(n => n + ':' + st(n)).join(',');
+    if (tag?.dataset.k === key) return;
     if (!tag) {
       tag = document.createElement('div');
       tag.className = '__kihstu';
-      tag.style.cssText = 'margin:0 0 4px;padding:2px 6px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:normal;line-height:1.4;';
+      tag.style.cssText = 'margin:0 0 4px;padding:2px 6px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;white-space:normal;line-height:1.5;';
       ev.prepend(tag);
     }
-    tag.textContent = text;
+    tag.dataset.k = key;
+    tag.replaceChildren('👤', ...names.map(n => {
+      const s = document.createElement('span');
+      s.style.cssText = 'display:inline-block;margin-right:6px;';
+      const k = st(n);
+      s.append(' ' + n, ...(k ? JN_TYPES.map((t, x) => {
+        const b = document.createElement('span');
+        b.textContent = t[0];
+        b.title = `${t}일지 ${k[x] === '1' ? 'N 있음' : 'N 없음'}`;
+        b.style.cssText = `margin-left:1px;padding:0 2px;border-radius:3px;font-size:10px;${k[x] === '1' ? 'background:#16a34a;color:#fff' : 'background:#fecaca;color:#991b1b'}`;
+        return b;
+      }) : []));
+      return s;
+    }));
   });
 }
 
-// 수강생 창이 열려 있으면 내 학생의 일지 종류별 N(최근 4일 새 일지) 여부를 학생별로 기록 (화면엔 안 붙임) → 📝 일지 탭에 표시
+// 수강생 창이 열려 있으면 내 학생의 일지 종류별 N(최근 4일 새 일지) 여부를 학생별로 기록 (수강생 창엔 안 붙임) → 시간표 칸에 표시
 const JN_TYPES = ['학사', '개강', '교육', '취업', '환불'];
 function applyJournalCheck() {
   const me = window._kihMe, re = me && mentorRe(me), d = toISO(new Date());
@@ -585,30 +606,7 @@ function applyJournalCheck() {
     const jn = (stuDB().jn ||= {});
     if (jn[name]?.k !== k || jn[name]?.d !== d) { jn[name] = { k, d }; dirty = true; }
   });
-  if (dirty) { saveStuDB(); renderJn(); }
-}
-
-// 📝 일지 탭: 종류별로 N 없는 학생 이름 (오늘 확인한 것만 — N은 "최근 4일"이라 날이 바뀌면 다시 확인)
-function renderJn() {
-  const box = S?.getElementById('jn-list');
-  if (!box) return;
-  const db = window._kihSD || {}, jn = db.jn || {}, today = toISO(new Date());
-  const all = [...new Set(Object.values(db.classes || {}).flatMap(c => c.names))].sort();
-  const done = all.filter(n => jn[n]?.d === today), unchecked = all.filter(n => jn[n]?.d !== today);
-  const line = (label, names, color) => {
-    const p = document.createElement('div');
-    p.style.cssText = `margin:4px 0;padding:6px 8px;border-radius:6px;font-size:12px;line-height:1.5;background:${color[0]};color:${color[1]};`;
-    const b = document.createElement('b'); b.textContent = label;
-    p.append(b, names.length ? ' ' + names.join(', ') : '');
-    return p;
-  };
-  box.replaceChildren(
-    ...(all.length ? [] : [line('먼저 📅 시간표 탭에서 👥 내 수강생 보기를 실행하세요.', [], ['#f3f4f6', '#374151'])]),
-    ...(done.length ? JN_TYPES.map((t, x) => {
-      const miss = done.filter(n => jn[n].k[x] !== '1');
-      return miss.length ? line(`${t} ❌ ${miss.length}명:`, miss, ['#fee2e2', '#991b1b']) : line(`${t} ✅ 모두 N 있음`, [], ['#dcfce7', '#166534']);
-    }) : []),
-    ...(unchecked.length && all.length ? [line(`오늘 미확인 ${unchecked.length}명:`, unchecked, ['#f3f4f6', '#6b7280'])] : []));
+  if (dirty) { saveStuDB(); applyStuMarks(); }
 }
 
 // 📝 일지 확인: 내 학생 있는 수업 칸을 하나씩 눌러 "수강생" 창을 열고 → 위 applyJournalCheck가 기록 → 닫기
@@ -648,8 +646,7 @@ async function doJournalScan() {
   const stopped = !_jnRun;
   _jnRun = false; btn.textContent = '📝 일지 확인';
   out.textContent = fail ? `⚠️ ${done}/${evs.length}개 확인 후 멈춤 — ${fail}`
-    : `${stopped ? '⏹ 중지됨' : '✅ 일지 확인 완료'} — ${done}/${evs.length}개 수업`;
-  renderJn();
+    : `${stopped ? '⏹ 중지됨' : '✅ 일지 확인 완료'} — ${done}/${evs.length}개 수업 · 시간표 칸 학·개·교·취·환 (초록=N 있음, 빨강=없음)`;
 }
 
 // 한 번 확인된 학생은 지우지 않고 합쳐서 저장 (빼려면 "↻ 전체")
