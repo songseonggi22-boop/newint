@@ -561,40 +561,49 @@ function applyStuMarks() {
   });
 }
 
-// 수강생 창: 내 학생 행마다 일지 N(최근 4일 새 일지) 있음/없음 표시 + 표 위에 요약
-// ponytail: 일지 종류 상관없이 N 하나라도 있으면 ✅. 학사일지만 볼 거면 data-tab="T1"로 좁히기
+// 수강생 창: 내 학생 행마다 일지 종류별(학사·개강·교육·취업·환불) N(최근 4일 새 일지) 있음/없음 + 표 위 종류별 요약
+const JN_TYPES = ['학사', '개강', '교육', '취업', '환불'];
+const chip = (txt, on, big) => {
+  const s = document.createElement('span');
+  s.textContent = txt;
+  s.style.cssText = `display:inline-block;margin:0 3px 2px 0;padding:${big ? '2px 8px' : '0 5px'};border-radius:8px;font-size:${big ? 12 : 11}px;font-weight:700;`
+    + (on ? 'background:#dcfce7;color:#166534' : 'background:#fee2e2;color:#991b1b');
+  return s;
+};
 function applyJournalCheck() {
   const me = window._kihMe;
   document.querySelectorAll('.b080108-student-grid').forEach(grid => {
     const re = me && mentorRe(me);
-    const ok = [], miss = [];
+    const miss = Object.fromEntries(JN_TYPES.map(t => [t, []]));
+    let total = 0;
     grid.querySelectorAll('tr.k-master-row').forEach(tr => {
       const mine = tr.querySelector('.b080108-relation--mine')
         || (re && [...tr.cells].some(td => re.test(td.textContent.split('|')[0].trim())));
       const cell = tr.querySelector('.b080108-student-cell');
       let tag = cell?.querySelector('.__kihjn');
       if (!mine || !cell) { tag?.remove(); return; }
+      total++;
       const name = cell.querySelector('.b080108-link')?.textContent.trim() || '';
-      const news = [...tr.querySelectorAll('.b080108-journal__btn--new')].map(b => b.querySelector('span')?.textContent.trim());
-      (news.length ? ok : miss).push(name);
-      const text = news.length ? `✅N ${news.join('·')}` : '❌N 없음';
-      if (tag?.textContent === text) return;
-      if (!tag) { tag = document.createElement('span'); tag.className = '__kihjn'; cell.prepend(tag); }
-      tag.textContent = text;
-      tag.style.cssText = `margin-right:4px;padding:1px 6px;border-radius:8px;font-size:11px;font-weight:700;${news.length ? 'background:#dcfce7;color:#166534' : 'background:#fee2e2;color:#991b1b'}`;
+      const has = new Set([...tr.querySelectorAll('.b080108-journal__btn--new')].map(b => b.querySelector('span')?.textContent.trim()));
+      JN_TYPES.forEach(t => has.has(t) || miss[t].push(name));
+      const key = JN_TYPES.map(t => +has.has(t)).join('');
+      if (tag?.dataset.k === key) return;
+      if (!tag) { tag = document.createElement('div'); tag.className = '__kihjn'; cell.prepend(tag); }
+      tag.dataset.k = key;
+      tag.replaceChildren(...JN_TYPES.map(t => chip(`${t}${has.has(t) ? '✅' : '❌'}`, has.has(t))));
     });
     let sum = grid.previousElementSibling?.classList.contains('__kihjsum') ? grid.previousElementSibling : null;
-    const text = ok.length + miss.length
-      ? `👤 내 학생 ${ok.length + miss.length}명 · ✅N ${ok.length} · ❌N ${miss.length}${miss.length ? ' — ' + miss.join(', ') : ''}`
-      : '';
-    if (!text) { sum?.remove(); return; }
-    if (sum?.textContent === text) return;
+    if (!total) { sum?.remove(); return; }
+    const key = total + JSON.stringify(miss);
+    if (sum?.dataset.k === key) return;
     if (!sum) {
       sum = document.createElement('div'); sum.className = '__kihjsum';
-      sum.style.cssText = 'margin:6px 0;padding:6px 10px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:13px;font-weight:700;';
+      sum.style.cssText = 'margin:6px 0;padding:6px 10px;border-radius:6px;background:#fef3c7;color:#92400e;font-size:13px;font-weight:700;line-height:1.8;';
       grid.before(sum);
     }
-    sum.textContent = text;
+    sum.dataset.k = key;
+    sum.replaceChildren(`👤 내 학생 ${total}명 (N = 최근 4일 새 일지)`, document.createElement('br'),
+      ...JN_TYPES.map(t => chip(`${t} ${total - miss[t].length}/${total}${miss[t].length ? ' · 없음: ' + miss[t].join(', ') : ''}`, !miss[t].length, true)));
   });
 }
 
